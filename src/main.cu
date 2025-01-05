@@ -6,12 +6,16 @@
 #include "cudnn.h"
 #include "utils/utils.cuh"
 #include "utils/softmax.cuh"
+#include "utils/weight_init.cuh"
 #include "embeddings/token_embeddings.cuh"
 #include "embeddings/positional_encoding.cuh"
 #include "tokenizer/vocab.cuh"
 #include "tokenizer/tokenizer.cuh"
 #include "encoder/encoder.cuh"
 #include "decoder/decoder.cuh"
+#include "cublas_v2.h"
+#include "curand.h"
+#include "layers/final_linear_layer.cuh"
 
 // Function to display usage instructions
 void printUsage();
@@ -110,6 +114,15 @@ int main(int argc, char *argv[])
     // Initialize cuDNN
     cudnnHandle_t cudnn = initializeCUDNN();
 
+    // Create cuBLAS handle
+    cublasHandle_t cublas;
+    cublasCreate(&cublas);
+
+    // Create cuRAND generator
+    curandGenerator_t curand_gen;
+    curandCreateGenerator(&curand_gen, CURAND_RNG_PSEUDO_DEFAULT);
+    curandSetPseudoRandomGeneratorSeed(curand_gen, 1234ULL);
+
     // Create token embeddings
     float *d_token_embeddings = nullptr;
     createTokenEmbeddings(config, &d_token_embeddings);
@@ -169,20 +182,31 @@ int main(int argc, char *argv[])
     cudaStreamSynchronize(stream);
     cudaStreamDestroy(stream);
 
-    // Do something with d_decoder_output
-    // For now, just print a message
-    std::cout << "Decoder forward pass completed.\n";
+    // Create and initialize the FinalLinearLayer
+    FinalLinearLayer final_linear_layer(config, cublas, cudnn, curand_gen);
+    final_linear_layer.initialize();
 
-    // Cleanup
-    cudaFree(d_encoder_input);
-    cudaFree(d_encoder_output);
+    // Perform the forward pass of the final linear layer
+    final_linear_layer.forward(d_decoder_output);
+
+    // Cleanup decoder outputs
     cudaFree(d_decoder_input);
     cudaFree(d_decoder_output);
+    cudaFree(d_encoder_input);
+    cudaFree(d_encoder_output);
 
-    // Cleanup
-    cudnnDestroy(cudnn);
+    // Cleanup token embeddings and positional encodings
     cudaFree(d_token_embeddings);
     cudaFree(d_positional_encoding);
+
+    // Destroy cuBLAS handle
+    cublasDestroy(cublas);
+
+    // Destroy cuRAND generator
+    curandDestroyGenerator(curand_gen);
+
+    // Destroy cuDNN handle
+    cudnnDestroy(cudnn);
 
     return 0;
 }
