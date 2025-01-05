@@ -139,7 +139,7 @@ int main(int argc, char *argv[])
     cudaStreamCreate(&stream);
 
     // Run Encoder forward pass
-    encoder.forward(d_encoder_output, d_encoder_input, config.max_seq_len, stream);
+    encoder.forward(d_encoder_output, d_encoder_input, config.batch_size, config.max_seq_len, stream);
 
     // Synchronize and destroy stream
     cudaStreamSynchronize(stream);

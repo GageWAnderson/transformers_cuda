@@ -1,6 +1,8 @@
 #include "../../include/layers/feed_forward.cuh"
 #include <cuda_runtime.h>
 #include <cublas_v2.h>
+#include <curand.h>
+#include <curand_kernel.h>
 
 // Activation function (ReLU)
 __global__ void relu_activation(float* data, int size) {
@@ -20,6 +22,21 @@ __global__ void add_bias(float* data, const float* bias, int seq_len, int dim) {
     }
 }
 
+// Helper function to initialize weights with random values
+void initialize_weights(float* d_weights, size_t size, cudaStream_t stream) {
+    curandGenerator_t gen;
+    curandCreateGenerator(&gen, CURAND_RNG_PSEUDO_DEFAULT);
+    curandSetStream(gen, stream);
+    curandSetPseudoRandomGeneratorSeed(gen, 1234ULL);
+    curandGenerateUniform(gen, d_weights, size / sizeof(float));
+    curandDestroyGenerator(gen);
+}
+
+// Helper function to initialize biases with zeros
+void initialize_biases(float* d_biases, size_t size, cudaStream_t stream) {
+    cudaMemsetAsync(d_biases, 0, size, stream);
+}
+
 FeedForward::FeedForward(int hidden_dim, int intermediate_dim) {
     this->hidden_dim = hidden_dim;
     this->intermediate_dim = intermediate_dim;
@@ -35,10 +52,14 @@ FeedForward::FeedForward(int hidden_dim, int intermediate_dim) {
     cudaMalloc(&d_W2, size_W2);
     cudaMalloc(&d_b2, size_b2);
 
-    // Initialize weights and biases (e.g., using random values)
-    // For simplicity, we'll leave initialization to be implemented
-
-    // TODO: Implement weight initialization
+    // Initialize weights and biases
+    cudaStream_t stream;
+    cudaStreamCreate(&stream);
+    initialize_weights(d_W1, size_W1, stream);
+    initialize_biases(d_b1, size_b1, stream);
+    initialize_weights(d_W2, size_W2, stream);
+    initialize_biases(d_b2, size_b2, stream);
+    cudaStreamDestroy(stream);
 }
 
 FeedForward::~FeedForward() {

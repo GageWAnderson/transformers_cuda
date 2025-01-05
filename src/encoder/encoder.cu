@@ -43,14 +43,14 @@ Encoder::~Encoder()
     delete[] layer_norm2_layers;
 }
 
-void Encoder::forward(float *output, const float *input, int seq_len, cudaStream_t stream)
+void Encoder::forward(float *output, const float *input, int batch_size, int seq_len, cudaStream_t stream)
 {
-    // Allocate memory for intermediate outputs
+    // Allocate memory for intermediate outputs (update sizes to account for batch dimension)
     float *current_input = nullptr;
     float *current_output = nullptr;
-    cudaMalloc(&current_input, seq_len * hidden_dim * sizeof(float));
-    cudaMalloc(&current_output, seq_len * hidden_dim * sizeof(float));
-    cudaMemcpy(current_input, input, seq_len * hidden_dim * sizeof(float), cudaMemcpyDeviceToDevice);
+    cudaMalloc(&current_input, batch_size * seq_len * hidden_dim * sizeof(float));
+    cudaMalloc(&current_output, batch_size * seq_len * hidden_dim * sizeof(float));
+    cudaMemcpy(current_input, input, batch_size * seq_len * hidden_dim * sizeof(float), cudaMemcpyDeviceToDevice);
 
     for (int i = 0; i < num_layers; ++i)
     {
@@ -58,10 +58,10 @@ void Encoder::forward(float *output, const float *input, int seq_len, cudaStream
         layer_norm1_layers[i]->forward(current_output, current_input, seq_len, stream);
 
         // Self-Attention
-        self_attention_layers[i]->forward(current_output, current_output, seq_len, stream);
+        self_attention_layers[i]->forward(current_output, current_output, batch_size, seq_len, stream);
 
         // Add & Norm
-        add_tensors(current_output, current_input, current_output, seq_len * hidden_dim, stream);
+        add_tensors(current_output, current_input, current_output, batch_size * seq_len * hidden_dim, stream);
 
         // Layer Norm 2
         layer_norm2_layers[i]->forward(current_output, current_output, seq_len, stream);
@@ -70,14 +70,14 @@ void Encoder::forward(float *output, const float *input, int seq_len, cudaStream
         feed_forward_layers[i]->forward(current_output, current_output, seq_len, stream);
 
         // Add & Prepare for next layer
-        add_tensors(current_output, current_input, current_output, seq_len * hidden_dim, stream);
+        add_tensors(current_output, current_input, current_output, batch_size * seq_len * hidden_dim, stream);
 
         // Swap pointers for next layer
         std::swap(current_input, current_output);
     }
 
     // Copy the final output
-    cudaMemcpy(output, current_input, seq_len * hidden_dim * sizeof(float), cudaMemcpyDeviceToDevice);
+    cudaMemcpy(output, current_input, batch_size * seq_len * hidden_dim * sizeof(float), cudaMemcpyDeviceToDevice);
 
     // Free intermediate memory
     cudaFree(current_input);

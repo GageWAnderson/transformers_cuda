@@ -86,10 +86,10 @@ __global__ void fused_layer_norm_kernel(
     // sum_sq = warpReduceSum(sum_sq);
     
     // Block-level reduction
-    if (tid < warpSize) {
-        shared_data[tid] = sum;
-        shared_data[tid + warpSize] = sum_sq;
-    }
+    // if (tid < warpSize) {
+    //     shared_data[tid] = sum;
+    //     shared_data[tid + warpSize] = sum_sq;
+    // }
     __syncthreads();
     
     if (tid == 0) {

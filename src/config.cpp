@@ -4,19 +4,23 @@
 #include <iostream>
 
 Config::Config() : num_layers(6), hidden_dim(512), num_heads(8),
-                   intermediate_dim(2048), vocab_size(30522), embedding_dim(512), max_seq_len(512) {
+                   intermediate_dim(2048), vocab_size(30522), embedding_dim(512), max_seq_len(512)
+{
     // Default values are set here
 }
 
-bool Config::loadFromFile(const std::string& filename) {
+bool Config::loadFromFile(const std::string &filename)
+{
     std::ifstream file(filename);
-    if (!file.is_open()) {
+    if (!file.is_open())
+    {
         std::cerr << "Failed to open config file: " << filename << std::endl;
         return false;
     }
 
     std::string line, section;
-    while (std::getline(file, line)) {
+    while (std::getline(file, line))
+    {
         // Trim whitespace
         line.erase(0, line.find_first_not_of(" \t\r\n"));
         line.erase(line.find_last_not_of(" \t\r\n") + 1);
@@ -26,7 +30,8 @@ bool Config::loadFromFile(const std::string& filename) {
             continue;
 
         // Handle section headers
-        if (line.front() == '[' && line.back() == ']') {
+        if (line.front() == '[' && line.back() == ']')
+        {
             section = line.substr(1, line.size() - 2);
             continue;
         }
@@ -46,23 +51,43 @@ bool Config::loadFromFile(const std::string& filename) {
         value.erase(value.find_last_not_of(" \t\r\n") + 1);
 
         // Assign values based on the key
-        if (section == "Transformer") {
-            if (key == "num_layers") {
+        if (section == "Transformer")
+        {
+            if (key == "num_layers")
+            {
                 num_layers = std::stoi(value);
-            } else if (key == "hidden_dim") {
+            }
+            else if (key == "hidden_dim")
+            {
                 hidden_dim = std::stoi(value);
-            } else if (key == "num_heads") {
+            }
+            else if (key == "num_heads")
+            {
                 num_heads = std::stoi(value);
-            } else if (key == "intermediate_dim") {
+            }
+            else if (key == "intermediate_dim")
+            {
                 intermediate_dim = std::stoi(value);
-            } else if (key == "vocab_size") {
+            }
+            else if (key == "vocab_size")
+            {
                 vocab_size = std::stoi(value);
-            } else if (key == "embedding_dim") {
+            }
+            else if (key == "embedding_dim")
+            {
                 embedding_dim = std::stoi(value);
-            } else if (key == "vocab_file") {
+            }
+            else if (key == "vocab_file")
+            {
                 vocab_file = value;
-            } else if (key == "max_seq_len") {
+            }
+            else if (key == "max_seq_len")
+            {
                 max_seq_len = std::stoi(value);
+            }
+            else if (key == "batch_size")
+            {
+                batch_size = std::stoi(value);
             }
         }
     }

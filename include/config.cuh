@@ -12,6 +12,7 @@ struct Config
     int vocab_size;
     int embedding_dim;
     int max_seq_len;
+    int batch_size;
     std::string vocab_file;
 
     // Constructor to set default values

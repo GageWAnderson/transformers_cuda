@@ -15,7 +15,7 @@ OBJECTS := $(SOURCES:.cpp=.o)
 OBJECTS := $(OBJECTS:.cu=.o)
 
 CFLAGS := -I$(INCDIR) -I$(CUDNN_PATH)/include -I$(CUDA_PATH)/include
-LDFLAGS := -L$(CUDNN_PATH)/lib64 -lcudnn -lcublas
+LDFLAGS := -L$(CUDNN_PATH)/lib64 -lcudnn -lcublas -lcurand
 
 all: $(BINDIR)/$(TARGET)
 
