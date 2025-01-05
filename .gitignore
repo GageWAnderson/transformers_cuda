@@ -1,7 +1,47 @@
+# C++ object files
+*.o
+*.obj
+
+# C++ libraries
+*.lib
+*.a
+*.la
+*.lo
+
+# C++ compiled dynamic libraries
+*.dll
+*.dylib
+*.so
+
+# CUDA intermediate files
 *.i
 *.ii
 *.gpu
 *.ptx
 *.cubin
 *.fatbin
+
+# CUDA object files
 *.o
+
+# CUDA compiled binary
+*.out
+*.exe
+
+# Other common ignore files
+*.log
+*.tmp
+*.swp
+*.bak
+*.d
+*.tlog
+*.pdb
+*.ilk
+*.idb
+*.ipch
+*.pch
+*.rsp
+*.sdf
+*.opensdf
+*.VC.db
+*.VC.opendb
