@@ -182,6 +182,8 @@ int main(int argc, char *argv[])
     FinalLinearLayer final_linear_layer(config, cublas, cudnn, curand_gen);
     final_linear_layer.initialize();
 
+    std::cout << "\nGenerating tokens:\n";
+
     while (generation_step < config.max_generation_length)
     {
         // Get the embedding for the current token
@@ -212,6 +214,9 @@ int main(int argc, char *argv[])
         // Select the next token (e.g., using argmax)
         auto max_iter = std::max_element(h_logits.begin(), h_logits.end());
         int next_token_id = std::distance(h_logits.begin(), max_iter);
+
+        // Print the generated token
+        std::cout << "Token " << generation_step + 1 << ": " << vocabulary[next_token_id] << "\n";
 
         // Append the token to generated sequence
         generated_tokens.push_back(next_token_id);
@@ -258,7 +263,7 @@ int main(int argc, char *argv[])
 
     // Convert generated token IDs to tokens and output the result
     std::string generated_text = decodeTokens(generated_tokens, vocabulary);
-    std::cout << "Generated Text: " << generated_text << std::endl;
+    std::cout << "\nComplete generated text: " << generated_text << std::endl;
 
     return 0;
 }
