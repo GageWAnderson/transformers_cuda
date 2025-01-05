@@ -13,6 +13,9 @@ struct Config
     int embedding_dim;
     int max_seq_len;
     int batch_size;
+    int max_generation_length;
+    int start_token_id;
+    int stop_token_id;
     std::string vocab_file;
 
     // Constructor to set default values

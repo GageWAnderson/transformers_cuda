@@ -4,7 +4,8 @@
 #include <iostream>
 
 Config::Config() : num_layers(6), hidden_dim(512), num_heads(8),
-                   intermediate_dim(2048), vocab_size(30522), embedding_dim(512), max_seq_len(512)
+                   intermediate_dim(2048), vocab_size(30522), embedding_dim(512), max_seq_len(512),
+                   batch_size(1), max_generation_length(50), start_token_id(2), stop_token_id(3)
 {
     // Default values are set here
 }
@@ -88,6 +89,18 @@ bool Config::loadFromFile(const std::string &filename)
             else if (key == "batch_size")
             {
                 batch_size = std::stoi(value);
+            }
+            else if (key == "max_generation_length")
+            {
+                max_generation_length = std::stoi(value);
+            }
+            else if (key == "start_token_id")
+            {
+                start_token_id = std::stoi(value);
+            }
+            else if (key == "stop_token_id")
+            {
+                stop_token_id = std::stoi(value);
             }
         }
     }

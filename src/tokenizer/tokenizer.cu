@@ -1,4 +1,4 @@
-#include "tokenizer.cuh"
+#include "tokenizer/tokenizer.cuh"
 #include <sstream>
 #include <algorithm>
 #include <iostream>
@@ -47,4 +47,21 @@ std::vector<int> tokenize(const std::string& input, const std::vector<std::strin
     }
 
     return token_ids;
+}
+
+// Function to decode token IDs back into text
+std::string decodeTokens(const std::vector<int>& token_ids, const std::vector<std::string>& vocabulary) {
+    std::string decoded_text;
+    for (int token_id : token_ids) {
+        if (token_id >= 0 && token_id < static_cast<int>(vocabulary.size())) {
+            decoded_text += vocabulary[token_id] + " ";
+        } else {
+            decoded_text += "<UNK> ";
+        }
+    }
+    // Remove the trailing space if necessary
+    if (!decoded_text.empty()) {
+        decoded_text.pop_back();
+    }
+    return decoded_text;
 }

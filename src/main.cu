@@ -1,4 +1,5 @@
 #include <iostream>
+#include <algorithm>
 #include <string>
 #include <vector>
 #include "config.cuh"
@@ -135,7 +136,7 @@ int main(int argc, char *argv[])
     std::cout << "Positional encoding created with dimensions: "
               << config.max_seq_len << " x " << config.embedding_dim << "\n";
 
-    // Initialize Encoder
+    // Initialize Encoder (if using encoder-decoder architecture)
     Encoder encoder(config);
 
     // Allocate memory for encoder input and output
@@ -164,34 +165,81 @@ int main(int argc, char *argv[])
     // Allocate memory for decoder input and output
     float *d_decoder_input = nullptr;
     float *d_decoder_output = nullptr;
-    cudaMalloc(&d_decoder_input, input_size);
-    cudaMalloc(&d_decoder_output, input_size);
+    size_t decoder_input_size = config.batch_size * config.hidden_dim * sizeof(float);
+    cudaMalloc(&d_decoder_input, decoder_input_size);
+    cudaMalloc(&d_decoder_output, decoder_input_size);
 
-    // Prepare decoder input (for testing, using the positional encoding or token embeddings)
-    cudaMemcpy(d_decoder_input, d_token_embeddings, input_size, cudaMemcpyDeviceToDevice);
+    // Initialize generation variables
+    std::vector<int> generated_tokens;
+    int current_token_id = config.start_token_id; // Assuming start_token_id is defined in config
+    int generation_step = 0;
 
-    // Run Decoder forward pass
-    decoder.forward(d_decoder_output,
-                    d_decoder_input,
-                    d_encoder_output,
-                    config.batch_size,
-                    config.max_seq_len,
-                    stream);
-
-    // Synchronize after decoder
-    cudaStreamSynchronize(stream);
-    cudaStreamDestroy(stream);
+    // Allocate memory for the current token embedding
+    float *d_current_token_embedding = nullptr;
+    cudaMalloc(&d_current_token_embedding, decoder_input_size);
 
     // Create and initialize the FinalLinearLayer
     FinalLinearLayer final_linear_layer(config, cublas, cudnn, curand_gen);
     final_linear_layer.initialize();
 
-    // Perform the forward pass of the final linear layer
-    final_linear_layer.forward(d_decoder_output);
+    while (generation_step < config.max_generation_length)
+    {
+        // Get the embedding for the current token
+        getTokenEmbedding(current_token_id, d_token_embeddings, d_current_token_embedding, config);
 
-    // Cleanup decoder outputs
+        // Prepare decoder input
+        cudaMemcpy(d_decoder_input, d_current_token_embedding, decoder_input_size, cudaMemcpyDeviceToDevice);
+
+        // Run Decoder forward pass
+        decoder.forward(d_decoder_output,
+                        d_decoder_input,
+                        d_encoder_output,
+                        config.batch_size,
+                        1, // Sequence length is 1 for autoregressive decoding
+                        stream);
+
+        // Allocate memory for d_logits outside the forward function
+        float *d_logits = nullptr;
+        cudaMalloc(&d_logits, config.batch_size * config.vocab_size * sizeof(float));
+
+        // Updated function call matches the new signature
+        final_linear_layer.forward(d_decoder_output, d_logits);
+
+        // Copy logits to host to select the next token
+        std::vector<float> h_logits(config.vocab_size);
+        cudaMemcpy(h_logits.data(), d_logits, config.vocab_size * sizeof(float), cudaMemcpyDeviceToHost);
+
+        // Select the next token (e.g., using argmax)
+        auto max_iter = std::max_element(h_logits.begin(), h_logits.end());
+        int next_token_id = std::distance(h_logits.begin(), max_iter);
+
+        // Append the token to generated sequence
+        generated_tokens.push_back(next_token_id);
+
+        // Check for stop token
+        if (next_token_id == config.stop_token_id)
+        {
+            break;
+        }
+
+        // Update current token for next iteration
+        current_token_id = next_token_id;
+        generation_step++;
+
+        // Remember to free d_logits after use
+        cudaFree(d_logits);
+    }
+
+    // Synchronize and destroy the stream
+    cudaStreamSynchronize(stream);
+    cudaStreamDestroy(stream);
+
+    // Cleanup decoder inputs and outputs
     cudaFree(d_decoder_input);
     cudaFree(d_decoder_output);
+    cudaFree(d_current_token_embedding);
+
+    // Cleanup encoder inputs and outputs
     cudaFree(d_encoder_input);
     cudaFree(d_encoder_output);
 
@@ -207,6 +255,10 @@ int main(int argc, char *argv[])
 
     // Destroy cuDNN handle
     cudnnDestroy(cudnn);
+
+    // Convert generated token IDs to tokens and output the result
+    std::string generated_text = decodeTokens(generated_tokens, vocabulary);
+    std::cout << "Generated Text: " << generated_text << std::endl;
 
     return 0;
 }

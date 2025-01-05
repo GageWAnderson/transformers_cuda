@@ -76,3 +76,13 @@ void getInputEmbeddings(const std::vector<int> &token_ids, float *d_token_embedd
     // Free device memory for token IDs
     cudaFree(d_token_ids);
 }
+
+// Function to get the embedding for a specific token ID
+void getTokenEmbedding(int token_id, float *d_token_embeddings, float *d_output_embedding, const Config &config)
+{
+    size_t embedding_size = config.embedding_dim * sizeof(float);
+    size_t offset = static_cast<size_t>(token_id) * config.embedding_dim;
+
+    // Copy the embedding vector for the token ID from device to device memory
+    cudaMemcpy(d_output_embedding, d_token_embeddings + offset, embedding_size, cudaMemcpyDeviceToDevice);
+}

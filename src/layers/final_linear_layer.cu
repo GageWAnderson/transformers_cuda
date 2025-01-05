@@ -40,17 +40,12 @@ void FinalLinearLayer::freeWeights()
     }
 }
 
-void FinalLinearLayer::forward(float *d_input)
+void FinalLinearLayer::forward(float *d_input, float *d_logits)
 {
     // Dimensions for the linear layer
     int m = config_.batch_size * config_.max_seq_len; // Rows of input
     int k = config_.hidden_dim;                       // Shared dimension
     int n = config_.vocab_size;                       // Output dimension
-
-    // Allocate memory for the output of the linear layer (logits)
-    float *d_logits = nullptr;
-    size_t logits_size = m * n * sizeof(float);
-    cudaMalloc(&d_logits, logits_size);
 
     float alpha = 1.0f;
     float beta = 0.0f;
@@ -59,8 +54,8 @@ void FinalLinearLayer::forward(float *d_input)
     cublasSgemm(cublas_,
                 CUBLAS_OP_N, // No transpose
                 CUBLAS_OP_N, // No transpose
-                n,           // Columns of d_linear_weights_ (output size)
-                m,           // Rows of d_input (batch_size * seq_len)
+                n,           // Number of rows of d_linear_weights_ (output size)
+                m,           // Number of columns of d_input (batch_size * seq_len)
                 k,           // Shared dimension (hidden_dim)
                 &alpha,
                 d_linear_weights_, n, // Weights matrix [n x k]
@@ -71,22 +66,8 @@ void FinalLinearLayer::forward(float *d_input)
     // Apply softmax to the logits
     applySoftmax(cudnn_, d_logits, d_logits, m, n);
 
-    // Now, d_logits contains the probabilities for each token
+    // Optionally, you can process or log d_logits here
 
-    // For testing purposes, retrieve and print the probabilities of the first token
-    size_t token_probs_size = n * sizeof(float);
-    float *h_probs = new float[n];
-    cudaMemcpy(h_probs, d_logits, token_probs_size, cudaMemcpyDeviceToHost);
-
-    std::cout << "Output probabilities for the first token:" << std::endl;
-    for (int i = 0; i < n; ++i)
-    {
-        std::cout << h_probs[i] << " ";
-    }
-    std::cout << std::endl;
-
-    delete[] h_probs;
-
-    // Cleanup
-    cudaFree(d_logits);
+    // Removed internal allocation and deallocation of d_logits
+    // No cudaMalloc or cudaFree for d_logits in this function
 }
