@@ -31,7 +31,22 @@ public:
     MultiHeadAttention(int hidden_dim, int num_heads);
     ~MultiHeadAttention();
 
-    void forward(float* output, const float* input, int batch_size, int seq_len, cudaStream_t stream);
+    // Updated forward method to optionally take encoder input
+    void forward(float* output,
+                 const float* query_input,
+                 const float* key_value_input,
+                 int batch_size,
+                 int seq_len,
+                 cudaStream_t stream,
+                 bool mask = false);
+
+    // Overloaded method for self-attention (key_value_input not provided)
+    void forward(float* output,
+                 const float* input,
+                 int batch_size,
+                 int seq_len,
+                 cudaStream_t stream,
+                 bool mask = false);
 };
 
 #endif // MULTIHEAD_ATTENTION_H 

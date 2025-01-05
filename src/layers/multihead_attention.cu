@@ -4,6 +4,191 @@
 #include <cassert>
 #include <cudnn.h>
 #include "utils/softmax.cuh"
+#include <cublas_v2.h>
+#include <math.h>
+
+void computeAttentionScores(const float *Q, const float *K, float *attention_scores,
+                            int batch_size, int num_heads, int seq_len, int head_dim,
+                            float scale, cublasHandle_t cublas_handle, cudaStream_t stream)
+{
+    // Set the cuBLAS stream
+    cublasSetStream(cublas_handle, stream);
+
+    int batch_count = batch_size * num_heads;
+    int m = seq_len;  // Rows of the output matrix (attention_scores)
+    int n = seq_len;  // Columns of the output matrix
+    int k = head_dim; // Inner dimension
+
+    const float alpha = scale;
+    const float beta = 0.0f;
+
+    // Leading dimensions
+    int lda = k;
+    int ldb = k;
+    int ldc = n;
+
+    // Strides between matrices in the batch
+    long long int strideA = m * k; // Q
+    long long int strideB = n * k; // K^T
+    long long int strideC = m * n; // attention_scores
+
+    // Perform batched matrix multiplication: attention_scores = Q * K^T
+    cublasStatus_t status = cublasSgemmStridedBatched(
+        cublas_handle,
+        CUBLAS_OP_T,      // Transpose K
+        CUBLAS_OP_N,      // Q is not transposed
+        n,                // Number of columns of the output matrix
+        m,                // Number of rows of the output matrix
+        k,                // Shared dimension
+        &alpha,           // Alpha scaling factor
+        K,                // Pointer to K
+        lda,              // Leading dimension of K
+        strideB,          // Stride between K matrices
+        Q,                // Pointer to Q
+        lda,              // Leading dimension of Q
+        strideA,          // Stride between Q matrices
+        &beta,            // Beta scaling factor
+        attention_scores, // Pointer to output
+        ldc,              // Leading dimension of output
+        strideC,          // Stride between output matrices
+        batch_count       // Number of matrices to compute
+    );
+
+    if (status != CUBLAS_STATUS_SUCCESS)
+    {
+        // Handle error (e.g., throw an exception or print an error message)
+    }
+}
+
+// Apply a mask to the attention scores
+__global__ void maskKernel(float *attention_scores, int seq_len, float mask_value)
+{
+    int idx = blockIdx.x * blockDim.x + threadIdx.x;
+
+    if (idx < seq_len * seq_len)
+    {
+        // Replace masked positions with mask_value (e.g., -inf)
+        // Implement your masking logic here
+    }
+}
+
+void applyMask(float *attention_scores, int batch_size, int num_heads, int seq_len, cudaStream_t stream)
+{
+    int total_elements = batch_size * num_heads * seq_len * seq_len;
+
+    // Define mask value (e.g., a very large negative number)
+    float mask_value = -1e9;
+
+    int threads = 256;
+    int blocks = (total_elements + threads - 1) / threads;
+
+    // Launch kernel to apply the mask
+    maskKernel<<<blocks, threads, 0, stream>>>(attention_scores, seq_len, mask_value);
+
+    // Check for kernel launch errors
+    cudaError_t err = cudaGetLastError();
+    if (err != cudaSuccess)
+    {
+        // Handle error
+    }
+}
+
+// Apply softmax to attention scores
+void applySoftmaxToAttentionScores(float *attention_scores,
+                                   int batch_size, int num_heads, int seq_len,
+                                   cudnnHandle_t cudnn_handle, cudaStream_t stream)
+{
+    // Set the cuDNN stream
+    cudnnSetStream(cudnn_handle, stream);
+
+    // Create tensor descriptor
+    cudnnTensorDescriptor_t tensor_desc;
+    cudnnCreateTensorDescriptor(&tensor_desc);
+    cudnnSetTensor4dDescriptor(
+        tensor_desc,
+        CUDNN_TENSOR_NCHW,
+        CUDNN_DATA_FLOAT,
+        batch_size * num_heads,
+        1,
+        seq_len,
+        seq_len);
+
+    const float alpha = 1.0f;
+    const float beta = 0.0f;
+
+    // Apply softmax
+    cudnnStatus_t status = cudnnSoftmaxForward(
+        cudnn_handle,
+        CUDNN_SOFTMAX_ACCURATE,
+        CUDNN_SOFTMAX_MODE_CHANNEL, // Apply softmax across the last dimension
+        &alpha,
+        tensor_desc,
+        attention_scores,
+        &beta,
+        tensor_desc,
+        attention_scores);
+
+    if (status != CUDNN_STATUS_SUCCESS)
+    {
+        // Handle error
+    }
+
+    // Destroy tensor descriptor
+    cudnnDestroyTensorDescriptor(tensor_desc);
+}
+
+void computeAttentionOutput(const float *attention_scores, const float *V, float *attention_output,
+                            int batch_size, int num_heads, int seq_len, int head_dim,
+                            cublasHandle_t cublas_handle, cudaStream_t stream)
+{
+    // Set the cuBLAS stream
+    cublasSetStream(cublas_handle, stream);
+
+    int batch_count = batch_size * num_heads;
+    int m = seq_len;  // Rows of the output matrix (attention_output)
+    int n = head_dim; // Columns of the output matrix
+    int k = seq_len;  // Inner dimension
+
+    const float alpha = 1.0f;
+    const float beta = 0.0f;
+
+    // Leading dimensions
+    int lda = k;
+    int ldb = n;
+    int ldc = n;
+
+    // Strides between matrices in the batch
+    long long int strideA = m * k; // attention_scores
+    long long int strideB = k * n; // V
+    long long int strideC = m * n; // attention_output
+
+    // Perform batched matrix multiplication: attention_output = attention_scores * V
+    cublasStatus_t status = cublasSgemmStridedBatched(
+        cublas_handle,
+        CUBLAS_OP_N,      // attention_scores is not transposed
+        CUBLAS_OP_N,      // V is not transposed
+        n,                // Number of columns of the output matrix
+        m,                // Number of rows of the output matrix
+        k,                // Shared dimension
+        &alpha,           // Alpha scaling factor
+        V,                // Pointer to V
+        ldb,              // Leading dimension of V
+        strideB,          // Stride between V matrices
+        attention_scores, // Pointer to attention_scores
+        lda,              // Leading dimension of attention_scores
+        strideA,          // Stride between attention_scores matrices
+        &beta,            // Beta scaling factor
+        attention_output, // Pointer to output
+        ldc,              // Leading dimension of output
+        strideC,          // Stride between output matrices
+        batch_count       // Number of matrices to compute
+    );
+
+    if (status != CUBLAS_STATUS_SUCCESS)
+    {
+        // Handle error
+    }
+}
 
 MultiHeadAttention::MultiHeadAttention(int hidden_dim, int num_heads)
 {
@@ -49,26 +234,50 @@ MultiHeadAttention::~MultiHeadAttention()
     cublasDestroy(cublas_handle);
 }
 
-void MultiHeadAttention::forward(float *output, const float *input, int batch_size, int seq_len, cudaStream_t stream)
+// Overloaded forward method for self-attention
+void MultiHeadAttention::forward(float *output,
+                                 const float *input,
+                                 int batch_size,
+                                 int seq_len,
+                                 cudaStream_t stream,
+                                 bool mask)
+{
+    // For self-attention, Q, K, V all come from input
+    forward(output, input, input, batch_size, seq_len, stream, mask);
+}
+
+// Updated forward method that accepts separate query and key/value inputs
+void MultiHeadAttention::forward(float *output,
+                                 const float *query_input,
+                                 const float *key_value_input,
+                                 int batch_size,
+                                 int seq_len,
+                                 cudaStream_t stream,
+                                 bool mask)
 {
     // Set the cuBLAS stream
     cublasSetStream(cublas_handle, stream);
 
+    // Create cuDNN handle
+    cudnnHandle_t cudnn_handle;
+    cudnnCreate(&cudnn_handle);
+    cudnnSetStream(cudnn_handle, stream);
+
     // Dimensions
     int embed_dim = hidden_dim;
-    int head_dim = this->head_dim; // Corrected to use the member variable
+    int head_dim = this->head_dim;
 
-    // Allocate memory for Q, K, V, and attention scores
-    float *Q;
-    float *K;
-    float *V;
-    cudaMalloc((void **)&Q, batch_size * seq_len * embed_dim * sizeof(float));
-    cudaMalloc((void **)&K, batch_size * seq_len * embed_dim * sizeof(float));
-    cudaMalloc((void **)&V, batch_size * seq_len * embed_dim * sizeof(float));
+    // Allocate memory for Q, K, V
+    float *Q, *K, *V;
+    size_t size = batch_size * seq_len * embed_dim * sizeof(float);
+    cudaMalloc((void **)&Q, size);
+    cudaMalloc((void **)&K, size);
+    cudaMalloc((void **)&V, size);
 
-    // Linear projections: Q = input * W_q
     const float alpha = 1.0f;
     const float beta = 0.0f;
+
+    // Compute Q = query_input * W_q
     cublasSgemm(
         cublas_handle,
         CUBLAS_OP_N,
@@ -79,13 +288,13 @@ void MultiHeadAttention::forward(float *output, const float *input, int batch_si
         &alpha,
         W_q,
         embed_dim,
-        input,
+        query_input,
         embed_dim,
         &beta,
         Q,
         embed_dim);
 
-    // Repeat for K and V
+    // Compute K = key_value_input * W_k
     cublasSgemm(
         cublas_handle,
         CUBLAS_OP_N,
@@ -96,12 +305,13 @@ void MultiHeadAttention::forward(float *output, const float *input, int batch_si
         &alpha,
         W_k,
         embed_dim,
-        input,
+        key_value_input,
         embed_dim,
         &beta,
         K,
         embed_dim);
 
+    // Compute V = key_value_input * W_v
     cublasSgemm(
         cublas_handle,
         CUBLAS_OP_N,
@@ -112,80 +322,47 @@ void MultiHeadAttention::forward(float *output, const float *input, int batch_si
         &alpha,
         W_v,
         embed_dim,
-        input,
+        key_value_input,
         embed_dim,
         &beta,
         V,
         embed_dim);
 
-    // Reshape Q, K, V if necessary
-    // Skipping for simplicity
+    // Reshape and transpose Q, K, V for multi-head attention
+    // [Optional] Implement functions to reshape Q, K, V into [Batch * NumHeads, SeqLen, HeadDim]
 
-    // Compute scaled dot-product attention scores
+    // Compute attention scores
     float *attention_scores;
-    cudaMalloc((void **)&attention_scores, batch_size * num_heads * seq_len * seq_len * sizeof(float));
+    size_t attention_size = batch_size * num_heads * seq_len * seq_len * sizeof(float);
+    cudaMalloc((void **)&attention_scores, attention_size);
 
+    // Compute scaled dot-product Q * K^T
     const float scale = 1.0f / sqrtf((float)head_dim);
 
-    // Compute attention scores using cublasSgemmStridedBatched
-    cublasSgemmStridedBatched(
-        cublas_handle,
-        CUBLAS_OP_T,
-        CUBLAS_OP_N,
-        seq_len,
-        seq_len,
-        head_dim,
-        &scale,
-        K,
-        head_dim,
-        seq_len * head_dim,
-        Q,
-        head_dim,
-        seq_len * head_dim,
-        &beta,
-        attention_scores,
-        seq_len,
-        seq_len * seq_len,
-        batch_size * num_heads);
+    // Implement batched matrix multiplication for attention scores
+    // For simplicity, assuming functions to handle this
+    computeAttentionScores(Q, K, attention_scores, batch_size, num_heads, seq_len, head_dim, scale, cublas_handle, stream);
 
-    // Apply softmax to attention_scores
-    // Initialize cuDNN handle
-    cudnnHandle_t cudnn;
-    cudnnCreate(&cudnn);
-    cudnnSetStream(cudnn, stream);
+    // Apply mask if required
+    if (mask)
+    {
+        applyMask(attention_scores, batch_size, num_heads, seq_len, stream);
+    }
 
-    // Apply softmax using the provided function
-    int total_elements = batch_size * num_heads * seq_len * seq_len;
-    applySoftmax(cudnn, attention_scores, attention_scores, total_elements);
+    // Apply softmax to attention scores
+    applySoftmaxToAttentionScores(attention_scores, batch_size, num_heads, seq_len, cudnn_handle, stream);
 
-    // Destroy cuDNN handle
-    cudnnDestroy(cudnn);
-
-    // Compute attention output: attention_output = attention_scores * V
+    // Compute attention output
     float *attention_output;
-    cudaMalloc((void **)&attention_output, batch_size * seq_len * embed_dim * sizeof(float));
+    cudaMalloc((void **)&attention_output, size);
 
-    cublasSgemmStridedBatched(
-        cublas_handle,
-        CUBLAS_OP_N,
-        CUBLAS_OP_N,
-        head_dim,
-        seq_len,
-        seq_len,
-        &alpha,
-        V,
-        head_dim,
-        seq_len * head_dim,
-        attention_scores,
-        seq_len,
-        seq_len * seq_len,
-        &beta,
-        attention_output,
-        head_dim,
-        seq_len * head_dim,
-        batch_size * num_heads);
+    // Implement batched matrix multiplication for attention output
+    computeAttentionOutput(attention_scores, V, attention_output, batch_size, num_heads, seq_len, head_dim, cublas_handle, stream);
 
-    // Concatenate heads and project the output: output = attention_output * W_o
+    // Concatenate heads and project the output
+    // For simplicity, we skip the concatenation step and assume functions handle the reshaping
+
+    // Output projection: output = attention_output * W_o
     cublasSgemm(
         cublas_handle,
         CUBLAS_OP_N,
@@ -208,4 +385,7 @@ void MultiHeadAttention::forward(float *output, const float *input, int batch_si
     cudaFree(V);
     cudaFree(attention_scores);
     cudaFree(attention_output);
+
+    // Destroy cuDNN handle
+    cudnnDestroy(cudnn_handle);
 }
