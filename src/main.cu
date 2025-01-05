@@ -11,6 +11,7 @@
 #include "tokenizer/vocab.cuh"
 #include "tokenizer/tokenizer.cuh"
 #include "encoder/encoder.cuh"
+#include "decoder/decoder.cuh"
 
 // Function to display usage instructions
 void printUsage();
@@ -141,17 +142,42 @@ int main(int argc, char *argv[])
     // Run Encoder forward pass
     encoder.forward(d_encoder_output, d_encoder_input, config.batch_size, config.max_seq_len, stream);
 
-    // Synchronize and destroy stream
+    // Synchronize after encoder
+    cudaStreamSynchronize(stream);
+
+    // Initialize Decoder
+    Decoder decoder(config);
+
+    // Allocate memory for decoder input and output
+    float *d_decoder_input = nullptr;
+    float *d_decoder_output = nullptr;
+    cudaMalloc(&d_decoder_input, input_size);
+    cudaMalloc(&d_decoder_output, input_size);
+
+    // Prepare decoder input (for testing, using the positional encoding or token embeddings)
+    cudaMemcpy(d_decoder_input, d_token_embeddings, input_size, cudaMemcpyDeviceToDevice);
+
+    // Run Decoder forward pass
+    decoder.forward(d_decoder_output,
+                    d_decoder_input,
+                    d_encoder_output,
+                    config.batch_size,
+                    config.max_seq_len,
+                    stream);
+
+    // Synchronize after decoder
     cudaStreamSynchronize(stream);
     cudaStreamDestroy(stream);
 
-    // Do something with d_encoder_output
+    // Do something with d_decoder_output
     // For now, just print a message
-    std::cout << "Encoder forward pass completed.\n";
+    std::cout << "Decoder forward pass completed.\n";
 
     // Cleanup
     cudaFree(d_encoder_input);
     cudaFree(d_encoder_output);
+    cudaFree(d_decoder_input);
+    cudaFree(d_decoder_output);
 
     // Cleanup
     cudnnDestroy(cudnn);
