@@ -3,7 +3,8 @@
 
 #include <string>
 
-struct Config {
+struct Config
+{
     int num_layers;
     int hidden_dim;
     int num_heads;
@@ -16,7 +17,7 @@ struct Config {
     Config();
 
     // Function to load configurations from a file
-    bool loadFromFile(const std::string& filename);
+    bool loadFromFile(const std::string &filename);
 };
 
 #endif // CONFIG_H

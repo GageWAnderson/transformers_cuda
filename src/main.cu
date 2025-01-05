@@ -10,13 +10,16 @@
 #include "embeddings/positional_encoding.cuh"
 #include "tokenizer/vocab.cuh"
 #include "tokenizer/tokenizer.cuh"
+#include "encoder/encoder.cuh"
 
 // Function to display usage instructions
 void printUsage();
 
 // Helper function to load configuration
-bool loadConfiguration(Config &config) {
-    if (!config.loadFromFile("config/config.ini")) {
+bool loadConfiguration(Config &config)
+{
+    if (!config.loadFromFile("config/config.ini"))
+    {
         std::cout << "Proceeding with default configuration values.\n";
         return false;
     }
@@ -24,19 +27,30 @@ bool loadConfiguration(Config &config) {
 }
 
 // Helper function to parse command-line arguments
-bool parseArguments(int argc, char *argv[], Config &config) {
-    for (int i = 1; i < argc; ++i) {
+bool parseArguments(int argc, char *argv[], Config &config)
+{
+    for (int i = 1; i < argc; ++i)
+    {
         std::string arg = argv[i];
-        if (arg.find("--layers=") == 0) {
+        if (arg.find("--layers=") == 0)
+        {
             config.num_layers = std::stoi(arg.substr(9));
-        } else if (arg.find("--hidden_dim=") == 0) {
+        }
+        else if (arg.find("--hidden_dim=") == 0)
+        {
             config.hidden_dim = std::stoi(arg.substr(13));
-        } else if (arg.find("--heads=") == 0) {
+        }
+        else if (arg.find("--heads=") == 0)
+        {
             config.num_heads = std::stoi(arg.substr(8));
-        } else if (arg == "--help" || arg == "-h") {
+        }
+        else if (arg == "--help" || arg == "-h")
+        {
             printUsage();
             return false;
-        } else {
+        }
+        else
+        {
             std::cerr << "Unknown argument: " << arg << std::endl;
             printUsage();
             return false;
@@ -46,7 +60,8 @@ bool parseArguments(int argc, char *argv[], Config &config) {
 }
 
 // Helper function to display initialized parameters
-void displayParameters(const Config &config) {
+void displayParameters(const Config &config)
+{
     std::cout << "Initializing Transformer model with the following parameters:\n";
     std::cout << "Number of layers: " << config.num_layers << "\n";
     std::cout << "Hidden dimension size: " << config.hidden_dim << "\n";
@@ -54,13 +69,15 @@ void displayParameters(const Config &config) {
 }
 
 // Helper function to load vocabulary
-void loadAndDisplayVocabulary(const std::string &vocab_file, std::vector<std::string> &vocabulary) {
+void loadAndDisplayVocabulary(const std::string &vocab_file, std::vector<std::string> &vocabulary)
+{
     loadVocabulary(vocab_file, vocabulary);
     std::cout << "Loaded vocabulary with " << vocabulary.size() << " tokens.\n";
 }
 
 // Helper function to initialize cuDNN
-cudnnHandle_t initializeCUDNN() {
+cudnnHandle_t initializeCUDNN()
+{
     cudnnHandle_t cudnn;
     checkCUDNN(cudnnCreate(&cudnn));
     return cudnn;
@@ -69,14 +86,16 @@ cudnnHandle_t initializeCUDNN() {
 // Helper function to run CLI server loop
 void runCLIServer(const std::vector<std::string> &vocabulary, float *d_token_embeddings, float *d_positional_encoding, const Config &config);
 
-int main(int argc, char *argv[]) {
+int main(int argc, char *argv[])
+{
     Config config;
 
     // Load configurations from the config file
     loadConfiguration(config);
 
     // Parse command-line arguments to override config values
-    if (!parseArguments(argc, argv, config)) {
+    if (!parseArguments(argc, argv, config))
+    {
         return 1;
     }
 
@@ -99,11 +118,40 @@ int main(int argc, char *argv[]) {
     createPositionalEncoding(config.max_seq_len, config.embedding_dim, &d_positional_encoding);
 
     // Print the positional encoding
-    std::cout << "Positional encoding created with dimensions: " 
+    std::cout << "Positional encoding created with dimensions: "
               << config.max_seq_len << " x " << config.embedding_dim << "\n";
 
-    // Start CLI server loop, passing the vocabulary and embeddings
-    runCLIServer(vocabulary, d_token_embeddings, d_positional_encoding, config);
+    // Initialize Encoder
+    Encoder encoder(config);
+
+    // Allocate memory for encoder input and output
+    float *d_encoder_input = nullptr;
+    float *d_encoder_output = nullptr;
+    size_t input_size = config.max_seq_len * config.hidden_dim * sizeof(float);
+    cudaMalloc(&d_encoder_input, input_size);
+    cudaMalloc(&d_encoder_output, input_size);
+
+    // Copy the input embeddings to encoder input
+    cudaMemcpy(d_encoder_input, d_token_embeddings, input_size, cudaMemcpyDeviceToDevice);
+
+    // Create CUDA stream
+    cudaStream_t stream;
+    cudaStreamCreate(&stream);
+
+    // Run Encoder forward pass
+    encoder.forward(d_encoder_output, d_encoder_input, config.max_seq_len, stream);
+
+    // Synchronize and destroy stream
+    cudaStreamSynchronize(stream);
+    cudaStreamDestroy(stream);
+
+    // Do something with d_encoder_output
+    // For now, just print a message
+    std::cout << "Encoder forward pass completed.\n";
+
+    // Cleanup
+    cudaFree(d_encoder_input);
+    cudaFree(d_encoder_output);
 
     // Cleanup
     cudnnDestroy(cudnn);
@@ -113,7 +161,8 @@ int main(int argc, char *argv[]) {
     return 0;
 }
 
-void printUsage() {
+void printUsage()
+{
     std::cout << "Usage: transformer [options]\n";
     std::cout << "Options:\n";
     std::cout << "  --layers=N        Set the number of layers (overrides config file)\n";
@@ -122,14 +171,17 @@ void printUsage() {
     std::cout << "  --help, -h        Show this help message\n";
 }
 
-void runCLIServer(const std::vector<std::string> &vocabulary, float *d_token_embeddings, float *d_positional_encoding, const Config &config) {
+void runCLIServer(const std::vector<std::string> &vocabulary, float *d_token_embeddings, float *d_positional_encoding, const Config &config)
+{
     std::cout << "Transformer CLI server is running. Type 'exit' to quit.\n";
     std::string input;
-    while (true) {
+    while (true)
+    {
         std::cout << "> ";
         std::getline(std::cin, input);
 
-        if (input == "exit") {
+        if (input == "exit")
+        {
             break;
         }
 
@@ -137,7 +189,8 @@ void runCLIServer(const std::vector<std::string> &vocabulary, float *d_token_emb
         std::vector<int> token_ids = tokenize(input, vocabulary);
 
         // Check for sequence length
-        if (token_ids.size() > config.max_seq_len) {
+        if (token_ids.size() > config.max_seq_len)
+        {
             std::cout << "Input exceeds maximum sequence length of " << config.max_seq_len << ". Truncating input.\n";
             token_ids.resize(config.max_seq_len);
         }
