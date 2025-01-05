@@ -6,5 +6,6 @@
 
 void createTokenEmbeddings(const Config &config, float **d_token_embeddings);
 void getInputEmbeddings(const std::vector<int> &token_ids, float *d_token_embeddings, float **d_input_embeddings, const Config &config);
+void getTokenEmbedding(int token_id, float *d_token_embeddings, float *d_output_embedding, const Config &config);
 
 #endif // TOKEN_EMBEDDINGS_CUH 

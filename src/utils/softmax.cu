@@ -1,30 +1,33 @@
 #include "utils/softmax.cuh"
 #include "utils/utils.cuh"
 
-void applySoftmax(cudnnHandle_t &cudnn, float *d_input, float *d_output, int test_size)
+void applySoftmax(cudnnHandle_t &cudnn, float *d_input, float *d_output, int batch_size, int num_classes)
 {
     // Create tensor descriptor
-    cudnnTensorDescriptor_t input_descriptor;
-    checkCUDNN(cudnnCreateTensorDescriptor(&input_descriptor));
-    checkCUDNN(cudnnSetTensor4dDescriptor(
-        input_descriptor,
-        CUDNN_TENSOR_NCHW,
-        CUDNN_DATA_FLOAT,
-        1, 1, 1, test_size));
+    cudnnTensorDescriptor_t tensorDesc;
+    cudnnCreateTensorDescriptor(&tensorDesc);
+    cudnnSetTensor4dDescriptor(tensorDesc,
+                               CUDNN_TENSOR_NCHW,
+                               CUDNN_DATA_FLOAT,
+                               batch_size,   // N
+                               num_classes,  // C
+                               1,            // H
+                               1);           // W
 
     // Apply softmax
-    float alpha = 1.0f, beta = 0.0f;
-    checkCUDNN(cudnnSoftmaxForward(
-        cudnn,
-        CUDNN_SOFTMAX_ACCURATE,
-        CUDNN_SOFTMAX_MODE_INSTANCE,
-        &alpha,
-        input_descriptor,
-        d_input,
-        &beta,
-        input_descriptor,
-        d_output));
+    const float alpha = 1.0f;
+    const float beta = 0.0f;
 
-    // Cleanup
-    cudnnDestroyTensorDescriptor(input_descriptor);
+    cudnnSoftmaxForward(cudnn,
+                        CUDNN_SOFTMAX_ACCURATE,
+                        CUDNN_SOFTMAX_MODE_CHANNEL,
+                        &alpha,
+                        tensorDesc,
+                        d_input,
+                        &beta,
+                        tensorDesc,
+                        d_output);
+
+    // Destroy tensor descriptor
+    cudnnDestroyTensorDescriptor(tensorDesc);
 }
