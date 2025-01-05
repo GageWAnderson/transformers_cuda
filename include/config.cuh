@@ -8,6 +8,7 @@ struct Config
     int num_layers;
     int hidden_dim;
     int num_heads;
+    int intermediate_dim;
     int vocab_size;
     int embedding_dim;
     int max_seq_len;

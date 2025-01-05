@@ -2,9 +2,9 @@
 #define ENCODER_H
 
 #include "../config.cuh"
-#include "layers/multihead_attention.cuh"
-#include "layers/feed_forward.cuh"
-#include "layers/layer_norm.cuh"
+#include "../layers/multihead_attention.cuh"
+#include "../layers/feed_forward.cuh"
+#include "../layers/layer_norm.cuh"
 
 class Encoder {
 private:
@@ -12,12 +12,13 @@ private:
     int num_layers;
     int hidden_dim;
     int num_heads;
+    int intermediate_dim;
 
     // Components for each layer
     MultiHeadAttention** self_attention_layers;
-    // FeedForward** feed_forward_layers; TODO: Implement
-    // LayerNorm** layer_norm1_layers; TODO: Implement
-    // LayerNorm** layer_norm2_layers; TODO: Implement
+    FeedForward** feed_forward_layers;
+    LayerNorm** layer_norm1_layers;
+    LayerNorm** layer_norm2_layers;
 
 public:
     Encoder(const Config& config);

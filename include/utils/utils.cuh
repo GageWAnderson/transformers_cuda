@@ -31,4 +31,7 @@
         }                                                    \
     }
 
+// Add the declaration of add_tensors function
+void add_tensors(const float* a, const float* b, float* c, int size, cudaStream_t stream);
+
 #endif // UTILS_CUH 

@@ -4,7 +4,7 @@
 #include <iostream>
 
 Config::Config() : num_layers(6), hidden_dim(512), num_heads(8),
-                   vocab_size(30522), embedding_dim(512), max_seq_len(512) {
+                   intermediate_dim(2048), vocab_size(30522), embedding_dim(512), max_seq_len(512) {
     // Default values are set here
 }
 
@@ -53,6 +53,8 @@ bool Config::loadFromFile(const std::string& filename) {
                 hidden_dim = std::stoi(value);
             } else if (key == "num_heads") {
                 num_heads = std::stoi(value);
+            } else if (key == "intermediate_dim") {
+                intermediate_dim = std::stoi(value);
             } else if (key == "vocab_size") {
                 vocab_size = std::stoi(value);
             } else if (key == "embedding_dim") {
