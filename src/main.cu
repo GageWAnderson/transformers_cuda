@@ -159,6 +159,16 @@ int main(int argc, char *argv[])
     // Synchronize after encoder
     cudaStreamSynchronize(stream);
 
+    // Print intermediate encoder output
+    std::vector<float> h_encoder_output(config.max_seq_len * config.hidden_dim);
+    cudaMemcpy(h_encoder_output.data(), d_encoder_output, input_size, cudaMemcpyDeviceToHost);
+    std::cout << "Encoder output (first 10 elements): ";
+    for (int i = 0; i < 10 && i < h_encoder_output.size(); ++i)
+    {
+        std::cout << h_encoder_output[i] << " ";
+    }
+    std::cout << "\n";
+
     // Initialize Decoder
     Decoder decoder(config);
 
@@ -183,7 +193,7 @@ int main(int argc, char *argv[])
     final_linear_layer.initialize();
 
     std::cout << "\nGenerating tokens:\n";
-
+    int seq_len = 1; // Sequence length is 1 for autoregressive decoding
     while (generation_step < config.max_generation_length)
     {
         // Get the embedding for the current token
@@ -197,19 +207,45 @@ int main(int argc, char *argv[])
                         d_decoder_input,
                         d_encoder_output,
                         config.batch_size,
-                        1, // Sequence length is 1 for autoregressive decoding
+                        seq_len,
                         stream);
+
+        // Print intermediate decoder output
+        std::vector<float> h_decoder_output(config.hidden_dim);
+        cudaMemcpy(h_decoder_output.data(), d_decoder_output, config.hidden_dim * sizeof(float), cudaMemcpyDeviceToHost);
+        std::cout << "Decoder output (first 10 elements): ";
+        for (int i = 0; i < 10 && i < h_decoder_output.size(); ++i)
+        {
+            std::cout << h_decoder_output[i] << " ";
+        }
+        std::cout << "\n";
 
         // Allocate memory for d_logits outside the forward function
         float *d_logits = nullptr;
-        cudaMalloc(&d_logits, config.batch_size * config.vocab_size * sizeof(float));
+        size_t logits_size = config.batch_size * seq_len * config.vocab_size * sizeof(float);
+        cudaMalloc(&d_logits, logits_size);
 
         // Updated function call matches the new signature
-        final_linear_layer.forward(d_decoder_output, d_logits);
+        final_linear_layer.forward(d_decoder_output, d_logits, 1); // seq_len = 1 during decoding
 
         // Copy logits to host to select the next token
-        std::vector<float> h_logits(config.vocab_size);
-        cudaMemcpy(h_logits.data(), d_logits, config.vocab_size * sizeof(float), cudaMemcpyDeviceToHost);
+        std::vector<float> h_logits(config.batch_size * seq_len * config.vocab_size);
+        cudaMemcpy(h_logits.data(), d_logits, logits_size, cudaMemcpyDeviceToHost);
+
+        // Print top 5 intermediate logits
+        std::vector<std::pair<float, int>> logits_with_indices;
+        for (int i = 0; i < h_logits.size(); ++i)
+        {
+            logits_with_indices.emplace_back(h_logits[i], i);
+        }
+        std::partial_sort(logits_with_indices.begin(), logits_with_indices.begin() + 5, logits_with_indices.end(), std::greater<>());
+
+        std::cout << "Top 5 Logits: ";
+        for (int i = 0; i < 5; ++i)
+        {
+            std::cout << logits_with_indices[i].first << " (index " << logits_with_indices[i].second << ") ";
+        }
+        std::cout << "\n";
 
         // Select the next token (e.g., using argmax)
         auto max_iter = std::max_element(h_logits.begin(), h_logits.end());

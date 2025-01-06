@@ -1,7 +1,26 @@
+#include <vector>
+#include <iostream>
 #include "layers/final_linear_layer.cuh"
 #include "utils/weight_init.cuh"
 #include "utils/softmax.cuh"
 #include "utils/utils.cuh"
+#include <cuda_runtime.h>
+
+__global__ void linearTransformKernel(const float* input, const float* weights, float* output,
+                                    int vocab_size, int batch_seq_len, int hidden_dim) {
+    // Calculate global thread indices
+    int row = blockIdx.x * blockDim.x + threadIdx.x; // For vocab_size dimension
+    int col = blockIdx.y * blockDim.y + threadIdx.y; // For batch_seq_len dimension
+    
+    if (row < vocab_size && col < batch_seq_len) {
+        float sum = 0.0f;
+        // Perform dot product between input and weights
+        for (int k = 0; k < hidden_dim; k++) {
+            sum += weights[row * hidden_dim + k] * input[col * hidden_dim + k];
+        }
+        output[col * vocab_size + row] = sum;
+    }
+}
 
 FinalLinearLayer::FinalLinearLayer(const Config &config,
                                    cublasHandle_t &cublas_handle,
@@ -40,31 +59,58 @@ void FinalLinearLayer::freeWeights()
     }
 }
 
-void FinalLinearLayer::forward(float *d_input, float *d_logits)
+void FinalLinearLayer::forward(float *d_input, float *d_logits, int seq_len)
 {
     // Dimensions for the linear layer
-    int m = config_.batch_size * config_.max_seq_len; // Rows of input
-    int k = config_.hidden_dim;                       // Shared dimension
-    int n = config_.vocab_size;                       // Output dimension
+    int vocab_size = config_.vocab_size;
+    int batch_seq_len = config_.batch_size * seq_len;
+    int hidden_dim = config_.hidden_dim;
 
-    float alpha = 1.0f;
-    float beta = 0.0f;
+    // Define block and grid dimensions
+    dim3 blockDim(16, 16);  // 256 threads per block
+    dim3 gridDim(
+        (vocab_size + blockDim.x - 1) / blockDim.x,
+        (batch_seq_len + blockDim.y - 1) / blockDim.y
+    );
 
-    // Perform the linear transformation
-    cublasSgemm(cublas_,
-                CUBLAS_OP_N, // No transpose
-                CUBLAS_OP_N, // No transpose
-                n,           // Number of rows of d_linear_weights_ (output size)
-                m,           // Number of columns of d_input (batch_size * seq_len)
-                k,           // Shared dimension (hidden_dim)
-                &alpha,
-                d_linear_weights_, n, // Weights matrix [n x k]
-                d_input, k,           // Input matrix [k x m]
-                &beta,
-                d_logits, n);         // Output matrix [n x m]
+    // Launch custom linear transformation kernel
+    linearTransformKernel<<<gridDim, blockDim>>>(
+        d_input,
+        d_linear_weights_,
+        d_logits,
+        vocab_size,
+        batch_seq_len,
+        hidden_dim
+    );
+
+    // Check for kernel launch errors
+    cudaError_t error = cudaGetLastError();
+    if (error != cudaSuccess) {
+        std::cerr << "CUDA error in linear transform kernel: " << cudaGetErrorString(error) << std::endl;
+    }
 
     // Apply softmax to the logits
-    applySoftmax(cudnn_, d_logits, d_logits, m, n);
+    applySoftmax(cudnn_, d_logits, d_logits, vocab_size, batch_seq_len);
+
+    // Print the first 10 logits before softmax
+    std::vector<float> h_logits_before(batch_seq_len * vocab_size);
+    cudaMemcpy(h_logits_before.data(), d_logits, batch_seq_len * vocab_size * sizeof(float), cudaMemcpyDeviceToHost);
+    std::cout << "Logits before softmax (first 10 elements): ";
+    for (int i = 0; i < 10 && i < h_logits_before.size(); ++i)
+    {
+        std::cout << h_logits_before[i] << " ";
+    }
+    std::cout << "\n";
+
+    // Print the first 10 logits after softmax
+    std::vector<float> h_logits_after(batch_seq_len * vocab_size);
+    cudaMemcpy(h_logits_after.data(), d_logits, batch_seq_len * vocab_size * sizeof(float), cudaMemcpyDeviceToHost);
+    std::cout << "Logits after softmax (first 10 elements): ";
+    for (int i = 0; i < 10 && i < h_logits_after.size(); ++i)
+    {
+        std::cout << h_logits_after[i] << " ";
+    }
+    std::cout << "\n";
 
     // Optionally, you can process or log d_logits here
 
