@@ -100,7 +100,7 @@ void FinalLinearLayer::forward(float *d_input, float *d_logits, int seq_len)
     std::cout << "\n";
 
     // Apply softmax to the logits
-    applySoftmax(cudnn_, d_logits, d_logits, vocab_size, batch_seq_len);
+    applySoftmax(cudnn_, d_logits, d_logits, batch_seq_len, vocab_size);
 
     // Print the first 10 logits after softmax
     std::vector<float> h_logits_after(batch_seq_len * vocab_size);
