@@ -89,10 +89,7 @@ void FinalLinearLayer::forward(float *d_input, float *d_logits, int seq_len)
         std::cerr << "CUDA error in linear transform kernel: " << cudaGetErrorString(error) << std::endl;
     }
 
-    // Apply softmax to the logits
-    applySoftmax(cudnn_, d_logits, d_logits, vocab_size, batch_seq_len);
-
-    // Print the first 10 logits before softmax
+    // Print the first 10 logits after the linear transformation but before softmax
     std::vector<float> h_logits_before(batch_seq_len * vocab_size);
     cudaMemcpy(h_logits_before.data(), d_logits, batch_seq_len * vocab_size * sizeof(float), cudaMemcpyDeviceToHost);
     std::cout << "Logits before softmax (first 10 elements): ";
@@ -101,6 +98,9 @@ void FinalLinearLayer::forward(float *d_input, float *d_logits, int seq_len)
         std::cout << h_logits_before[i] << " ";
     }
     std::cout << "\n";
+
+    // Apply softmax to the logits
+    applySoftmax(cudnn_, d_logits, d_logits, vocab_size, batch_seq_len);
 
     // Print the first 10 logits after softmax
     std::vector<float> h_logits_after(batch_seq_len * vocab_size);

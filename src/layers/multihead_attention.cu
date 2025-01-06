@@ -6,6 +6,7 @@
 #include "utils/softmax.cuh"
 #include <cublas_v2.h>
 #include <math.h>
+#include "utils/weight_init.cuh"
 
 void computeAttentionScores(const float *Q, const float *K, float *attention_scores,
                             int batch_size, int num_heads, int seq_len, int head_dim,
@@ -200,23 +201,22 @@ MultiHeadAttention::MultiHeadAttention(int hidden_dim, int num_heads)
     cublasCreate(&cublas_handle);
 
     // Allocate memory for weights and biases
-    size_t weight_size = hidden_dim * hidden_dim * sizeof(float); // Assuming square matrices for simplicity
-    cudaMalloc((void **)&W_q, weight_size);
-    cudaMalloc((void **)&W_k, weight_size);
-    cudaMalloc((void **)&W_v, weight_size);
-    cudaMalloc((void **)&W_o, weight_size);
+    size_t weight_size = hidden_dim * hidden_dim; // Number of elements
+    size_t weight_bytes = weight_size * sizeof(float);
+    cudaMalloc((void **)&W_q, weight_bytes);
+    cudaMalloc((void **)&W_k, weight_bytes);
+    cudaMalloc((void **)&W_v, weight_bytes);
+    cudaMalloc((void **)&W_o, weight_bytes);
 
-    // Optionally allocate biases here if you use them
-
-    // Initialize weights with random values
+    // Initialize weights using weight_init utility
     curandGenerator_t curand_gen;
     curandCreateGenerator(&curand_gen, CURAND_RNG_PSEUDO_DEFAULT);
     curandSetPseudoRandomGeneratorSeed(curand_gen, 1234ULL);
 
-    curandGenerateUniform(curand_gen, W_q, hidden_dim * hidden_dim);
-    curandGenerateUniform(curand_gen, W_k, hidden_dim * hidden_dim);
-    curandGenerateUniform(curand_gen, W_v, hidden_dim * hidden_dim);
-    curandGenerateUniform(curand_gen, W_o, hidden_dim * hidden_dim);
+    initializeWeights(curand_gen, W_q, weight_size);
+    initializeWeights(curand_gen, W_k, weight_size);
+    initializeWeights(curand_gen, W_v, weight_size);
+    initializeWeights(curand_gen, W_o, weight_size);
 
     // Destroy cuRAND generator
     curandDestroyGenerator(curand_gen);
