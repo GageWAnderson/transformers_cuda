@@ -28,6 +28,11 @@
 *.out
 *.exe
 
+# Machine Learning model weights
+*.safetensors
+*.gguf
+*.bin
+
 # Other common ignore files
 *.log
 *.tmp
