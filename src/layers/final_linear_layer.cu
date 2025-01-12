@@ -6,6 +6,18 @@
 #include "utils/utils.cuh"
 #include <cuda_runtime.h>
 
+/**
+ * @brief CUDA kernel for linear transformation
+ * @param input Input tensor
+ * @param weights Weight matrix
+ * @param output Output tensor
+ * @param vocab_size Size of vocabulary
+ * @param batch_seq_len Combined batch and sequence length
+ * @param hidden_dim Hidden dimension size
+ * 
+ * Performs matrix multiplication between input and weights to produce logits.
+ * Each thread computes one element of the output matrix.
+ */
 __global__ void linearTransformKernel(const float* input, const float* weights, float* output,
                                     int vocab_size, int batch_seq_len, int hidden_dim) {
     // Calculate global thread indices
@@ -22,6 +34,15 @@ __global__ void linearTransformKernel(const float* input, const float* weights, 
     }
 }
 
+/**
+ * @brief Constructs final linear layer
+ * @param config Model configuration
+ * @param cublas_handle cuBLAS handle
+ * @param cudnn_handle cuDNN handle
+ * @param curand_gen cuRAND generator
+ * 
+ * Initializes final linear layer that projects hidden states to vocabulary size.
+ */
 FinalLinearLayer::FinalLinearLayer(const Config &config,
                                    cublasHandle_t &cublas_handle,
                                    cudnnHandle_t &cudnn_handle,
@@ -30,11 +51,23 @@ FinalLinearLayer::FinalLinearLayer(const Config &config,
 {
 }
 
+/**
+ * @brief Destructor for the FinalLinearLayer class
+ * 
+ * Cleans up all allocated memory for layer components including
+ * weights and layer normalization.
+ */
 FinalLinearLayer::~FinalLinearLayer()
 {
     freeWeights();
 }
 
+/**
+ * @brief Initializes layer weights
+ * 
+ * Allocates memory for and initializes weights with random values
+ * using cuRAND generator.
+ */
 void FinalLinearLayer::initialize()
 {
     allocateWeights();
@@ -44,12 +77,22 @@ void FinalLinearLayer::initialize()
     initializeWeights(curand_gen_, d_linear_weights_, weight_size);
 }
 
+/**
+ * @brief Allocates memory for layer weights
+ * 
+ * Allocates GPU memory for the weight matrix used in linear transformation.
+ */
 void FinalLinearLayer::allocateWeights()
 {
     size_t weights_size = config_.hidden_dim * config_.vocab_size * sizeof(float);
     cudaMalloc(&d_linear_weights_, weights_size);
 }
 
+/**
+ * @brief Frees allocated weight memory
+ * 
+ * Releases GPU memory used for weights when layer is destroyed.
+ */
 void FinalLinearLayer::freeWeights()
 {
     if (d_linear_weights_)
@@ -59,6 +102,15 @@ void FinalLinearLayer::freeWeights()
     }
 }
 
+/**
+ * @brief Performs forward pass through final linear layer
+ * @param d_input Input hidden states
+ * @param d_logits Output logits
+ * @param seq_len Sequence length
+ * 
+ * Projects hidden states to vocabulary size using linear transformation,
+ * then applies softmax to get probability distribution over vocabulary.
+ */
 void FinalLinearLayer::forward(float *d_input, float *d_logits, int seq_len)
 {
     // Dimensions for the linear layer
@@ -89,31 +141,6 @@ void FinalLinearLayer::forward(float *d_input, float *d_logits, int seq_len)
         std::cerr << "CUDA error in linear transform kernel: " << cudaGetErrorString(error) << std::endl;
     }
 
-    // Print the first 10 logits after the linear transformation but before softmax
-    std::vector<float> h_logits_before(batch_seq_len * vocab_size);
-    cudaMemcpy(h_logits_before.data(), d_logits, batch_seq_len * vocab_size * sizeof(float), cudaMemcpyDeviceToHost);
-    std::cout << "Logits before softmax (first 10 elements): ";
-    for (int i = 0; i < 10 && i < h_logits_before.size(); ++i)
-    {
-        std::cout << h_logits_before[i] << " ";
-    }
-    std::cout << "\n";
-
     // Apply softmax to the logits
     applySoftmax(cudnn_, d_logits, d_logits, batch_seq_len, vocab_size);
-
-    // Print the first 10 logits after softmax
-    std::vector<float> h_logits_after(batch_seq_len * vocab_size);
-    cudaMemcpy(h_logits_after.data(), d_logits, batch_seq_len * vocab_size * sizeof(float), cudaMemcpyDeviceToHost);
-    std::cout << "Logits after softmax (first 10 elements): ";
-    for (int i = 0; i < 10 && i < h_logits_after.size(); ++i)
-    {
-        std::cout << h_logits_after[i] << " ";
-    }
-    std::cout << "\n";
-
-    // Optionally, you can process or log d_logits here
-
-    // Removed internal allocation and deallocation of d_logits
-    // No cudaMalloc or cudaFree for d_logits in this function
 }

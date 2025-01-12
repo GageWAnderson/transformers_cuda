@@ -6,7 +6,13 @@
 // TODO: Investigate the best vocab for the tokenizer
 // This is normally learned with the model, see if this is possible to train here
 
-// Helper function to split input text into tokens
+/**
+ * @brief Splits input text into individual tokens
+ * @param input String to be tokenized
+ * @return Vector of string tokens
+ * 
+ * Helper function that splits input text on whitespace into individual tokens.
+ */
 std::vector<std::string> tokenizeInput(const std::string& input) {
     std::vector<std::string> tokens;
     std::istringstream stream(input);
@@ -19,6 +25,16 @@ std::vector<std::string> tokenizeInput(const std::string& input) {
     return tokens;
 }
 
+/**
+ * @brief Converts input text into token IDs using vocabulary
+ * @param input Input text to tokenize
+ * @param vocabulary Vector of vocabulary tokens
+ * @return Vector of token IDs
+ * 
+ * Tokenizes input text by finding longest matching tokens in vocabulary.
+ * Uses greedy longest-match-first approach. Handles unknown tokens by warning
+ * and skipping.
+ */
 std::vector<int> tokenize(const std::string& input, const std::vector<std::string>& vocabulary) {
     std::vector<int> token_ids;
     std::string current_text = input;
@@ -49,7 +65,15 @@ std::vector<int> tokenize(const std::string& input, const std::vector<std::strin
     return token_ids;
 }
 
-// Function to decode token IDs back into text
+/**
+ * @brief Converts token IDs back into text
+ * @param token_ids Vector of token IDs to decode
+ * @param vocabulary Vector of vocabulary tokens
+ * @return Decoded text string
+ * 
+ * Converts sequence of token IDs back into text by looking up each ID
+ * in vocabulary. Handles unknown tokens with <UNK> placeholder.
+ */
 std::string decodeTokens(const std::vector<int>& token_ids, const std::vector<std::string>& vocabulary) {
     std::string decoded_text;
     for (int token_id : token_ids) {

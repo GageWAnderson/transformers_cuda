@@ -4,6 +4,15 @@
 #include <cuda_runtime.h>
 #include <cuda.h>
 
+/**
+ * @brief Constructs an Encoder with the given configuration
+ * @param config Configuration object containing model parameters
+ * 
+ * Initializes a transformer encoder with the specified number of layers,
+ * hidden dimensions, attention heads, and intermediate dimensions.
+ * Allocates memory for all layer components including self-attention,
+ * feed-forward networks, and layer normalization.
+ */
 Encoder::Encoder(const Config &config)
 {
     num_layers = config.num_layers;
@@ -27,6 +36,12 @@ Encoder::Encoder(const Config &config)
     }
 }
 
+/**
+ * @brief Destructor for the Encoder class
+ * 
+ * Cleans up all allocated memory for layer components including
+ * self-attention layers, feed-forward networks, and layer normalization.
+ */
 Encoder::~Encoder()
 {
     // Delete components of each layer
@@ -43,6 +58,18 @@ Encoder::~Encoder()
     delete[] layer_norm2_layers;
 }
 
+/**
+ * @brief Performs forward pass through the encoder
+ * @param output Pointer to output tensor on device
+ * @param input Pointer to input tensor on device
+ * @param batch_size Number of sequences in batch
+ * @param seq_len Length of input sequences
+ * @param stream CUDA stream for asynchronous execution
+ * 
+ * Processes input through multiple encoder layers with self-attention,
+ * feed-forward networks, residual connections and layer normalization.
+ * Uses multiple CUDA streams for parallel operations where possible.
+ */
 void Encoder::forward(float *output, const float *input, int batch_size, int seq_len, cudaStream_t stream)
 {
     // Allocate memory for intermediate outputs (update sizes to account for batch dimension)

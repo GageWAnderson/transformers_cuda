@@ -17,6 +17,9 @@ OBJECTS := $(OBJECTS:.cu=.o)
 CFLAGS := -I$(INCDIR) -I$(CUDNN_PATH)/include -I$(CUDA_PATH)/include
 LDFLAGS := -L$(CUDNN_PATH)/lib64 -lcudnn -lcublas -lcurand
 
+debug: CFLAGS += -DDEBUG
+debug: all
+
 all: $(BINDIR)/$(TARGET)
 
 $(BINDIR)/$(TARGET): $(OBJECTS)

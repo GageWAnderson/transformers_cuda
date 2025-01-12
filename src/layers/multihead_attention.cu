@@ -25,7 +25,6 @@ void computeAttentionScores(const float *Q, const float *K, float *attention_sco
 
     // Leading dimensions
     int lda = k;
-    int ldb = k;
     int ldc = n;
 
     // Strides between matrices in the batch

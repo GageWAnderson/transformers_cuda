@@ -17,22 +17,40 @@
 #include "cublas_v2.h"
 #include "curand.h"
 #include "layers/final_linear_layer.cuh"
+#include "utils/debug.cuh"
 
 // Function to display usage instructions
 void printUsage();
 
 // Helper function to load configuration
+/**
+ * @brief Loads configuration from file
+ * @param config Reference to Config object
+ * @return true if loaded successfully, false otherwise
+ * 
+ * Attempts to load configuration from config.ini file.
+ * Falls back to default values if load fails.
+ */
 bool loadConfiguration(Config &config)
 {
     if (!config.loadFromFile("config/config.ini"))
     {
-        std::cout << "Proceeding with default configuration values.\n";
+        debugPrint("Proceeding with default configuration values.\n");
         return false;
     }
     return true;
 }
 
 // Helper function to parse command-line arguments
+/**
+ * @brief Parses command line arguments
+ * @param argc Argument count
+ * @param argv Argument values
+ * @param config Reference to Config object
+ * @return true if parsed successfully, false if help requested or error
+ * 
+ * Processes command line arguments to override config values.
+ */
 bool parseArguments(int argc, char *argv[], Config &config)
 {
     for (int i = 1; i < argc; ++i)
@@ -66,22 +84,41 @@ bool parseArguments(int argc, char *argv[], Config &config)
 }
 
 // Helper function to display initialized parameters
+/**
+ * @brief Displays model parameters
+ * @param config Config object containing parameters
+ * 
+ * Prints initialized model parameters to console.
+ */
 void displayParameters(const Config &config)
 {
-    std::cout << "Initializing Transformer model with the following parameters:\n";
-    std::cout << "Number of layers: " << config.num_layers << "\n";
-    std::cout << "Hidden dimension size: " << config.hidden_dim << "\n";
-    std::cout << "Number of attention heads: " << config.num_heads << "\n";
+    debugPrint("Initializing Transformer model with the following parameters:\n");
+    debugPrint("Number of layers: %d\n", config.num_layers);
+    debugPrint("Hidden dimension size: %d\n", config.hidden_dim);
+    debugPrint("Number of attention heads: %d\n", config.num_heads);
 }
 
 // Helper function to load vocabulary
+/**
+ * @brief Loads and displays vocabulary
+ * @param vocab_file Path to vocabulary file
+ * @param vocabulary Vector to store vocabulary
+ * 
+ * Loads vocabulary from file and prints size information.
+ */
 void loadAndDisplayVocabulary(const std::string &vocab_file, std::vector<std::string> &vocabulary)
 {
     loadVocabulary(vocab_file, vocabulary);
-    std::cout << "Loaded vocabulary with " << vocabulary.size() << " tokens.\n";
+    debugPrint("Loaded vocabulary with %zu tokens.\n", vocabulary.size());
 }
 
 // Helper function to initialize cuDNN
+/**
+ * @brief Initializes cuDNN library
+ * @return Initialized cuDNN handle
+ * 
+ * Creates and returns cuDNN handle for use with neural network operations.
+ */
 cudnnHandle_t initializeCUDNN()
 {
     cudnnHandle_t cudnn;
@@ -90,7 +127,56 @@ cudnnHandle_t initializeCUDNN()
 }
 
 // Helper function to run CLI server loop
-void runCLIServer(const std::vector<std::string> &vocabulary, float *d_token_embeddings, float *d_positional_encoding, const Config &config);
+/**
+ * @brief Runs interactive CLI server
+ * @param vocabulary Model vocabulary
+ * @param d_token_embeddings Token embedding matrix
+ * @param d_positional_encoding Positional encoding matrix
+ * @param config Model configuration
+ * 
+ * Runs interactive command line interface for model inference.
+ */
+void runCLIServer(const std::vector<std::string> &vocabulary, float *d_token_embeddings, float *d_positional_encoding, const Config &config)
+{
+    std::cout << "Transformer CLI server is running. Type 'exit' to quit.\n";
+    std::string input;
+    while (true)
+    {
+        std::cout << "> ";
+        std::getline(std::cin, input);
+
+        if (input == "exit")
+        {
+            break;
+        }
+
+        // Tokenize the input text
+        std::vector<int> token_ids = tokenize(input, vocabulary);
+
+        // Check for sequence length
+        if (token_ids.size() > config.max_seq_len)
+        {
+            std::cout << "Input exceeds maximum sequence length of " << config.max_seq_len << ". Truncating input.\n";
+            token_ids.resize(config.max_seq_len);
+        }
+
+        int seq_len = token_ids.size();
+
+        // Get input embeddings
+        float *d_input_embeddings = nullptr;
+        getInputEmbeddings(token_ids, d_token_embeddings, &d_input_embeddings, config);
+
+        // Sum with positional encodings
+        sumEmbeddingsAndPositionalEncoding(d_input_embeddings, d_positional_encoding, seq_len, config.embedding_dim);
+
+        // TODO: Process the combined embeddings using the Transformer model
+        // Placeholder for model execution
+        std::cout << "Transformer model execution finished for input: " << input << "\n";
+
+        // Free device memory for input embeddings
+        cudaFree(d_input_embeddings);
+    }
+}
 
 int main(int argc, char *argv[])
 {
@@ -133,8 +219,8 @@ int main(int argc, char *argv[])
     createPositionalEncoding(config.max_seq_len, config.embedding_dim, &d_positional_encoding);
 
     // Print the positional encoding
-    std::cout << "Positional encoding created with dimensions: "
-              << config.max_seq_len << " x " << config.embedding_dim << "\n";
+    debugPrint("Positional encoding created with dimensions: %d x %d\n", 
+                config.max_seq_len, config.embedding_dim);
 
     // Initialize Encoder (if using encoder-decoder architecture)
     Encoder encoder(config);
@@ -162,12 +248,12 @@ int main(int argc, char *argv[])
     // Print intermediate encoder output
     std::vector<float> h_encoder_output(config.max_seq_len * config.hidden_dim);
     cudaMemcpy(h_encoder_output.data(), d_encoder_output, input_size, cudaMemcpyDeviceToHost);
-    std::cout << "Encoder output (first 10 elements): ";
+    debugPrint("Encoder output (first 10 elements): ");
     for (int i = 0; i < 10 && i < h_encoder_output.size(); ++i)
     {
-        std::cout << h_encoder_output[i] << " ";
+        debugPrint("%f ", h_encoder_output[i]);
     }
-    std::cout << "\n";
+    debugPrint("\n");
 
     // Initialize Decoder
     Decoder decoder(config);
@@ -192,7 +278,7 @@ int main(int argc, char *argv[])
     FinalLinearLayer final_linear_layer(config, cublas, cudnn, curand_gen);
     final_linear_layer.initialize();
 
-    std::cout << "\nGenerating tokens:\n";
+    debugPrint("\nGenerating tokens:\n");
     int seq_len = 1; // Sequence length is 1 for autoregressive decoding
     while (generation_step < config.max_generation_length)
     {
@@ -213,12 +299,12 @@ int main(int argc, char *argv[])
         // Print intermediate decoder output
         std::vector<float> h_decoder_output(config.hidden_dim);
         cudaMemcpy(h_decoder_output.data(), d_decoder_output, config.hidden_dim * sizeof(float), cudaMemcpyDeviceToHost);
-        std::cout << "Decoder output (first 10 elements): ";
+        debugPrint("Decoder output (first 10 elements): ");
         for (int i = 0; i < 10 && i < h_decoder_output.size(); ++i)
         {
-            std::cout << h_decoder_output[i] << " ";
+            debugPrint("%f ", h_decoder_output[i]);
         }
-        std::cout << "\n";
+        debugPrint("\n");
 
         // Allocate memory for d_logits outside the forward function
         float *d_logits = nullptr;
@@ -240,19 +326,19 @@ int main(int argc, char *argv[])
         }
         std::partial_sort(logits_with_indices.begin(), logits_with_indices.begin() + 5, logits_with_indices.end(), std::greater<>());
 
-        std::cout << "Top 5 Logits: ";
+        debugPrint("Top 5 Logits: ");
         for (int i = 0; i < 5; ++i)
         {
-            std::cout << logits_with_indices[i].first << " (index " << logits_with_indices[i].second << ") ";
+            debugPrint("%f (index %d) ", logits_with_indices[i].first, logits_with_indices[i].second);
         }
-        std::cout << "\n";
+        debugPrint("\n");
 
         // Select the next token (e.g., using argmax)
         auto max_iter = std::max_element(h_logits.begin(), h_logits.end());
         int next_token_id = std::distance(h_logits.begin(), max_iter);
 
         // Print the generated token
-        std::cout << "Token " << generation_step + 1 << ": " << vocabulary[next_token_id] << "\n";
+        debugPrint("Token %d: %s\n", generation_step + 1, vocabulary[next_token_id].c_str());
 
         // Append the token to generated sequence
         generated_tokens.push_back(next_token_id);
@@ -312,46 +398,4 @@ void printUsage()
     std::cout << "  --hidden_dim=N    Set the hidden dimension size (overrides config file)\n";
     std::cout << "  --heads=N         Set the number of attention heads (overrides config file)\n";
     std::cout << "  --help, -h        Show this help message\n";
-}
-
-void runCLIServer(const std::vector<std::string> &vocabulary, float *d_token_embeddings, float *d_positional_encoding, const Config &config)
-{
-    std::cout << "Transformer CLI server is running. Type 'exit' to quit.\n";
-    std::string input;
-    while (true)
-    {
-        std::cout << "> ";
-        std::getline(std::cin, input);
-
-        if (input == "exit")
-        {
-            break;
-        }
-
-        // Tokenize the input text
-        std::vector<int> token_ids = tokenize(input, vocabulary);
-
-        // Check for sequence length
-        if (token_ids.size() > config.max_seq_len)
-        {
-            std::cout << "Input exceeds maximum sequence length of " << config.max_seq_len << ". Truncating input.\n";
-            token_ids.resize(config.max_seq_len);
-        }
-
-        int seq_len = token_ids.size();
-
-        // Get input embeddings
-        float *d_input_embeddings = nullptr;
-        getInputEmbeddings(token_ids, d_token_embeddings, &d_input_embeddings, config);
-
-        // Sum with positional encodings
-        sumEmbeddingsAndPositionalEncoding(d_input_embeddings, d_positional_encoding, seq_len, config.embedding_dim);
-
-        // TODO: Process the combined embeddings using the Transformer model
-        // Placeholder for model execution
-        std::cout << "Transformer model execution finished for input: " << input << "\n";
-
-        // Free device memory for input embeddings
-        cudaFree(d_input_embeddings);
-    }
 }
