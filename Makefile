@@ -14,7 +14,7 @@ SOURCES := $(shell find $(SRCDIR) -name '*.cpp' -o -name '*.cu')
 OBJECTS := $(SOURCES:.cpp=.o)
 OBJECTS := $(OBJECTS:.cu=.o)
 
-CFLAGS := -I$(INCDIR) -I$(CUDNN_PATH)/include -I$(CUDA_PATH)/include
+CFLAGS := -I$(INCDIR) -I$(CUDNN_PATH)/include -I$(CUDA_PATH)/include -I/usr/include -I/usr/local/include
 LDFLAGS := -L$(CUDNN_PATH)/lib64 -lcudnn -lcublas -lcurand
 
 debug: CFLAGS += -DDEBUG
