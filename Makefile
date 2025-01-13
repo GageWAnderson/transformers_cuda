@@ -9,6 +9,9 @@ SRCDIR := src
 INCDIR := include
 BINDIR := bin
 
+# Default weights file path
+WEIGHTS_FILE ?= model_weights/model.safetensors
+
 # Include all source files, including those in subdirectories
 SOURCES := $(shell find $(SRCDIR) -name '*.cpp' -o -name '*.cu')
 OBJECTS := $(SOURCES:.cpp=.o)
@@ -35,5 +38,9 @@ $(BINDIR)/$(TARGET): $(OBJECTS)
 clean:
 	rm -rf $(BINDIR) $(OBJECTS)
 
+# Updated run target with default weights file
 run: $(BINDIR)/$(TARGET)
-	./$(BINDIR)/$(TARGET)
+	./$(BINDIR)/$(TARGET) --weights=$(WEIGHTS_FILE)
+
+# Allow overriding weights file from command line
+# Usage: make run WEIGHTS_FILE=path/to/weights.safetensors

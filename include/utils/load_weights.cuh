@@ -58,9 +58,9 @@ struct PreparedData {
 };
 
 struct TensorView {
-    Dtype dtype;
-    std::vector<size_t> shape;
-    const std::vector<uint8_t>& data;
+    Dtype dtype_value;
+    std::vector<size_t> shape_value;
+    const std::vector<uint8_t>& data_value;
 
     TensorView(Dtype dtype, std::vector<size_t> shape, const std::vector<uint8_t>& data);
     
@@ -100,3 +100,5 @@ template <typename S, typename V>
 void serialize_to_file(std::vector<std::pair<S, V>>& data,
                       const std::optional<std::unordered_map<std::string, std::string>>& data_info,
                       const std::string& filename);
+
+bool loadModelWeights(const std::string& weights_file);

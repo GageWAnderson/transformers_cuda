@@ -6,6 +6,7 @@
 #include <stdexcept>
 #include <sstream>
 #include <nlohmann/json.hpp>
+#include "utils/debug.cuh"
 
 using json = nlohmann::json;
 
@@ -177,17 +178,27 @@ void serialize_to_file(std::vector<std::pair<S, V>>& data, const std::unordered_
 void from_json(const json& j, Metadata& m) {
     m.has_metadata = j.contains("metadata");
     if (m.has_metadata) {
-        m.metadata = j["metadata"].get<std::unordered_map<std::string, std::string>>();
+        m.metadata = j.at("metadata").get<std::unordered_map<std::string, std::string>>();
     }
+
+    if (!j.contains("tensors")) {
+        throw SafeTensorError("Missing 'tensors' field in SafeTensor header");
+    }
+
     std::vector<std::pair<std::string, TensorInfo>> tensors;
-    auto tensors_obj = j["tensors"].get<std::unordered_map<std::string, json>>();
+    auto tensors_obj = j.at("tensors").get<std::unordered_map<std::string, json>>();
+    
     for (const auto& [name, tensor] : tensors_obj) {
         TensorInfo info;
-        info.dtype = tensor["dtype"].get<Dtype>();
-        info.shape = tensor["shape"].get<std::vector<size_t>>();
-        info.data_offsets = tensor["data_offsets"].get<std::pair<size_t, size_t>>();
+        if (!tensor.contains("dtype") || !tensor.contains("shape") || !tensor.contains("data_offsets")) {
+            throw SafeTensorError("Tensor missing required fields (dtype, shape, or data_offsets)");
+        }
+        info.dtype = tensor.at("dtype").get<Dtype>();
+        info.shape = tensor.at("shape").get<std::vector<size_t>>();
+        info.data_offsets = tensor.at("data_offsets").get<std::pair<size_t, size_t>>();
         tensors.push_back({name, info});
     }
+    
     m = Metadata(m.has_metadata, m.metadata, tensors);
 }
 
@@ -294,4 +305,49 @@ struct TensorView {
         return data_.size();
     }
 };
+
+bool loadModelWeights(const std::string& weights_file) {
+    try {
+        // Read the file into a buffer
+        std::ifstream file(weights_file, std::ios::binary | std::ios::ate);
+        if (!file.is_open()) {
+            debugPrint("Failed to open weights file: %s\n", weights_file.c_str());
+            return false;
+        }
+
+        std::streamsize size = file.tellg();
+        file.seekg(0, std::ios::beg);
+
+        std::vector<uint8_t> buffer(size);
+        if (!file.read(reinterpret_cast<char*>(buffer.data()), size)) {
+            debugPrint("Failed to read weights file\n");
+            return false;
+        }
+
+        // Parse the SafeTensors file
+        SafeTensors safe_tensors(buffer);
+        
+        debugPrint("Successfully loaded weights file. Found %zu tensors\n", safe_tensors.len());
+        
+        // Print names of available tensors for debugging
+        auto tensor_names = safe_tensors.names();
+        debugPrint("Available tensors:\n");
+        for (const auto& name : tensor_names) {
+            auto info = safe_tensors.tensor(name);
+            debugPrint("  %s: ", name.c_str());
+            for (size_t dim : info.shape) {
+                debugPrint("%zu ", dim);
+            }
+            debugPrint("\n");
+        }
+
+        return true;
+    } catch (const SafeTensorError& e) {
+        debugPrint("Error loading weights: %s\n", e.what());
+        return false;
+    } catch (const std::exception& e) {
+        debugPrint("Unexpected error loading weights: %s\n", e.what());
+        return false;
+    }
+}
 

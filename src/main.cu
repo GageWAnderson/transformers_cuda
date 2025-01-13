@@ -18,6 +18,8 @@
 #include "curand.h"
 #include "layers/final_linear_layer.cuh"
 #include "utils/debug.cuh"
+#include "utils/load_weights.cuh"
+#include <fstream>
 
 // Function to display usage instructions
 void printUsage();
@@ -53,6 +55,9 @@ bool loadConfiguration(Config &config)
  */
 bool parseArguments(int argc, char *argv[], Config &config)
 {
+    // Add weights_file variable to store the path
+    std::string weights_file;
+
     for (int i = 1; i < argc; ++i)
     {
         std::string arg = argv[i];
@@ -68,6 +73,10 @@ bool parseArguments(int argc, char *argv[], Config &config)
         {
             config.num_heads = std::stoi(arg.substr(8));
         }
+        else if (arg.find("--weights=") == 0)
+        {
+            weights_file = arg.substr(10);
+        }
         else if (arg == "--help" || arg == "-h")
         {
             printUsage();
@@ -80,6 +89,15 @@ bool parseArguments(int argc, char *argv[], Config &config)
             return false;
         }
     }
+
+    // If weights file was specified, try to load it
+    if (!weights_file.empty()) {
+        if (!loadModelWeights(weights_file)) {
+            std::cerr << "Failed to load weights from: " << weights_file << std::endl;
+            return false;
+        }
+    }
+
     return true;
 }
 
@@ -397,5 +415,6 @@ void printUsage()
     std::cout << "  --layers=N        Set the number of layers (overrides config file)\n";
     std::cout << "  --hidden_dim=N    Set the hidden dimension size (overrides config file)\n";
     std::cout << "  --heads=N         Set the number of attention heads (overrides config file)\n";
+    std::cout << "  --weights=FILE    Load model weights from SafeTensors file\n";
     std::cout << "  --help, -h        Show this help message\n";
 }
