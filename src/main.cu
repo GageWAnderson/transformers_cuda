@@ -92,10 +92,13 @@ bool parseArguments(int argc, char *argv[], Config &config)
 
     // If weights file was specified, try to load it
     if (!weights_file.empty()) {
-        if (!loadModelWeights(weights_file)) {
+        auto dims = loadModelWeights(weights_file);
+        if (!dims.valid) {
             std::cerr << "Failed to load weights from: " << weights_file << std::endl;
             return false;
         }
+        // Update config with dimensions from weights
+        config.updateFromWeights(dims);
     }
 
     return true;
@@ -203,7 +206,7 @@ int main(int argc, char *argv[])
     // Load configurations from the config file
     loadConfiguration(config);
 
-    // Parse command-line arguments to override config values
+    // Parse command-line arguments and load weights
     if (!parseArguments(argc, argv, config))
     {
         return 1;

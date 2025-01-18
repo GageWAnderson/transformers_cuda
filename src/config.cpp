@@ -108,3 +108,15 @@ bool Config::loadFromFile(const std::string &filename)
     file.close();
     return true;
 }
+
+void Config::updateFromWeights(const ModelDimensions &dims) {
+    if (!dims.valid) {
+        return;
+    }
+    num_layers = dims.num_layers;
+    hidden_dim = dims.hidden_dim;
+    num_heads = dims.num_heads;
+    intermediate_dim = dims.intermediate_dim;
+    vocab_size = dims.vocab_size;
+    embedding_dim = dims.embedding_dim;
+}

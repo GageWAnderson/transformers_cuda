@@ -7,6 +7,7 @@
 #include <sstream>
 #include <nlohmann/json.hpp>
 #include "utils/debug.cuh"
+#include "model_dimensions.cuh"
 
 using json = nlohmann::json;
 
@@ -501,16 +502,16 @@ struct TensorView
     }
 };
 
-bool loadModelWeights(const std::string &weights_file)
+ModelDimensions loadModelWeights(const std::string &weights_file)
 {
-    try
-    {
+    ModelDimensions dims{0, 0, 0, 0, 0, 0, false};
+    try {
         // Read the file into a buffer
         std::ifstream file(weights_file, std::ios::binary | std::ios::ate);
         if (!file.is_open())
         {
             debugPrint("Failed to open weights file: %s\n", weights_file.c_str());
-            return false;
+            return dims;
         }
 
         std::streamsize size = file.tellg();
@@ -520,7 +521,7 @@ bool loadModelWeights(const std::string &weights_file)
         if (!file.read(reinterpret_cast<char *>(buffer.data()), size))
         {
             debugPrint("Failed to read weights file\n");
-            return false;
+            return dims;
         }
 
         // Parse the SafeTensors file
@@ -528,30 +529,60 @@ bool loadModelWeights(const std::string &weights_file)
 
         debugPrint("Successfully loaded weights file. Found %zu tensors\n", safe_tensors.len());
 
-        // Print names of available tensors for debugging
+        // Derive model dimensions from weights
         auto tensor_names = safe_tensors.names();
-        debugPrint("Available tensors:\n");
-        for (const auto &name : tensor_names)
-        {
-            auto info = safe_tensors.tensor(name);
-            debugPrint("  %s: ", name.c_str());
-            for (size_t dim : info.shape)
-            {
-                debugPrint("%zu ", dim);
-            }
-            debugPrint("\n");
+        
+        // Get embedding dimension from token embeddings
+        if (auto it = std::find_if(tensor_names.begin(), tensor_names.end(),
+            [](const std::string& name) { return name.find("token_embedding") != std::string::npos; });
+            it != tensor_names.end()) {
+            auto info = safe_tensors.tensor(*it);
+            dims.embedding_dim = info.shape[1];  // [vocab_size, embedding_dim]
+            dims.vocab_size = info.shape[0];
         }
 
-        return true;
+        // Get number of layers by counting attention layers
+        dims.num_layers = std::count_if(tensor_names.begin(), tensor_names.end(),
+            [](const std::string& name) { return name.find("self_attention.query") != std::string::npos; });
+
+        // Get hidden dimension from any attention layer
+        if (auto it = std::find_if(tensor_names.begin(), tensor_names.end(),
+            [](const std::string& name) { return name.find("self_attention.query") != std::string::npos; });
+            it != tensor_names.end()) {
+            auto info = safe_tensors.tensor(*it);
+            dims.hidden_dim = info.shape[1];  // [hidden_dim, head_dim * num_heads]
+        }
+
+        // Get number of attention heads
+        if (auto it = std::find_if(tensor_names.begin(), tensor_names.end(),
+            [](const std::string& name) { return name.find("self_attention.num_heads") != std::string::npos; });
+            it != tensor_names.end()) {
+            auto info = safe_tensors.tensor(*it);
+            const uint8_t* tensor_data = safe_tensors.data.data() + info.data_offsets.first;
+            dims.num_heads = *reinterpret_cast<const int*>(tensor_data);
+        }
+
+        // Get intermediate dimension from FFN
+        if (auto it = std::find_if(tensor_names.begin(), tensor_names.end(),
+            [](const std::string& name) { return name.find("ffn.linear1") != std::string::npos; });
+            it != tensor_names.end()) {
+            auto info = safe_tensors.tensor(*it);
+            dims.intermediate_dim = info.shape[1];  // [hidden_dim, intermediate_dim]
+        }
+
+        dims.valid = true;
+        debugPrint("Derived model dimensions:\n");
+        debugPrint("  num_layers: %d\n", dims.num_layers);
+        debugPrint("  hidden_dim: %d\n", dims.hidden_dim);
+        debugPrint("  num_heads: %d\n", dims.num_heads);
+        debugPrint("  intermediate_dim: %d\n", dims.intermediate_dim);
+        debugPrint("  vocab_size: %d\n", dims.vocab_size);
+        debugPrint("  embedding_dim: %d\n", dims.embedding_dim);
+
+        return dims;
     }
-    catch (const SafeTensorError &e)
-    {
+    catch (const std::exception &e) {
         debugPrint("Error loading weights: %s\n", e.what());
-        return false;
-    }
-    catch (const std::exception &e)
-    {
-        debugPrint("Unexpected error loading weights: %s\n", e.what());
-        return false;
+        return dims;
     }
 }

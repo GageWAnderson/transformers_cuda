@@ -5,6 +5,7 @@
 #include <unordered_map>
 #include <optional>
 #include <stdexcept>
+#include "model_dimensions.cuh"
 
 // Forward declare json to avoid requiring nlohmann/json.hpp in header
 namespace nlohmann {
@@ -101,4 +102,4 @@ void serialize_to_file(std::vector<std::pair<S, V>>& data,
                       const std::optional<std::unordered_map<std::string, std::string>>& data_info,
                       const std::string& filename);
 
-bool loadModelWeights(const std::string& weights_file);
+ModelDimensions loadModelWeights(const std::string& weights_file);

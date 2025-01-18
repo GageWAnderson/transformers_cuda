@@ -2,6 +2,7 @@
 #define CONFIG_H
 
 #include <string>
+#include "model_dimensions.cuh"
 
 struct Config
 {
@@ -20,6 +21,9 @@ struct Config
 
     // Constructor to set default values
     Config();
+
+    public:
+    void updateFromWeights(const ModelDimensions &dims);
 
     // Function to load configurations from a file
     bool loadFromFile(const std::string &filename);
