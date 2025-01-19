@@ -4,6 +4,11 @@
 #include <string>
 #include "model_dimensions.cuh"
 
+enum class ModelArchitecture {
+    GPT2,
+    UNKNOWN
+};
+
 struct Config
 {
     int num_layers;
@@ -18,12 +23,14 @@ struct Config
     int start_token_id;
     int stop_token_id;
     std::string vocab_file;
+    ModelArchitecture model_arch;
 
     // Constructor to set default values
     Config();
 
     public:
     void updateFromWeights(const ModelDimensions &dims);
+    ModelArchitecture parseModelArchitecture(const std::string& arch_str);
 
     // Function to load configurations from a file
     bool loadFromFile(const std::string &filename);

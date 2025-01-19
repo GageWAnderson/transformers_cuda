@@ -125,6 +125,11 @@ void FinalLinearLayer::forward(float *d_input, float *d_logits, int seq_len)
         (batch_seq_len + blockDim.y - 1) / blockDim.y
     );
 
+    std::cout << "Dimensions - vocab_size: " << vocab_size 
+              << ", batch_seq_len: " << batch_seq_len 
+              << ", hidden_dim: " << hidden_dim << std::endl;
+    std::cout << "Grid dims - x: " << gridDim.x << ", y: " << gridDim.y << std::endl;
+
     // Launch custom linear transformation kernel
     linearTransformKernel<<<gridDim, blockDim>>>(
         d_input,

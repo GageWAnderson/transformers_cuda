@@ -29,7 +29,7 @@ void printUsage();
  * @brief Loads configuration from file
  * @param config Reference to Config object
  * @return true if loaded successfully, false otherwise
- * 
+ *
  * Attempts to load configuration from config.ini file.
  * Falls back to default values if load fails.
  */
@@ -50,7 +50,7 @@ bool loadConfiguration(Config &config)
  * @param argv Argument values
  * @param config Reference to Config object
  * @return true if parsed successfully, false if help requested or error
- * 
+ *
  * Processes command line arguments to override config values.
  */
 bool parseArguments(int argc, char *argv[], Config &config)
@@ -91,9 +91,11 @@ bool parseArguments(int argc, char *argv[], Config &config)
     }
 
     // If weights file was specified, try to load it
-    if (!weights_file.empty()) {
+    if (!weights_file.empty())
+    {
         auto dims = loadModelWeights(weights_file);
-        if (!dims.valid) {
+        if (!dims.valid)
+        {
             std::cerr << "Failed to load weights from: " << weights_file << std::endl;
             return false;
         }
@@ -108,7 +110,7 @@ bool parseArguments(int argc, char *argv[], Config &config)
 /**
  * @brief Displays model parameters
  * @param config Config object containing parameters
- * 
+ *
  * Prints initialized model parameters to console.
  */
 void displayParameters(const Config &config)
@@ -124,7 +126,7 @@ void displayParameters(const Config &config)
  * @brief Loads and displays vocabulary
  * @param vocab_file Path to vocabulary file
  * @param vocabulary Vector to store vocabulary
- * 
+ *
  * Loads vocabulary from file and prints size information.
  */
 void loadAndDisplayVocabulary(const std::string &vocab_file, std::vector<std::string> &vocabulary)
@@ -137,7 +139,7 @@ void loadAndDisplayVocabulary(const std::string &vocab_file, std::vector<std::st
 /**
  * @brief Initializes cuDNN library
  * @return Initialized cuDNN handle
- * 
+ *
  * Creates and returns cuDNN handle for use with neural network operations.
  */
 cudnnHandle_t initializeCUDNN()
@@ -154,7 +156,7 @@ cudnnHandle_t initializeCUDNN()
  * @param d_token_embeddings Token embedding matrix
  * @param d_positional_encoding Positional encoding matrix
  * @param config Model configuration
- * 
+ *
  * Runs interactive command line interface for model inference.
  */
 void runCLIServer(const std::vector<std::string> &vocabulary, float *d_token_embeddings, float *d_positional_encoding, const Config &config)
@@ -240,8 +242,8 @@ int main(int argc, char *argv[])
     createPositionalEncoding(config.max_seq_len, config.embedding_dim, &d_positional_encoding);
 
     // Print the positional encoding
-    debugPrint("Positional encoding created with dimensions: %d x %d\n", 
-                config.max_seq_len, config.embedding_dim);
+    debugPrint("Positional encoding created with dimensions: %d x %d\n",
+               config.max_seq_len, config.embedding_dim);
 
     // Initialize Encoder (if using encoder-decoder architecture)
     Encoder encoder(config);

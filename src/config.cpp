@@ -5,9 +5,17 @@
 
 Config::Config() : num_layers(6), hidden_dim(512), num_heads(8),
                    intermediate_dim(2048), vocab_size(30522), embedding_dim(512), max_seq_len(512),
-                   batch_size(1), max_generation_length(50), start_token_id(2), stop_token_id(3)
+                   batch_size(1), max_generation_length(50), start_token_id(2), stop_token_id(3),
+                   model_arch(ModelArchitecture::GPT2)
 {
     // Default values are set here
+}
+
+ModelArchitecture Config::parseModelArchitecture(const std::string& arch_str) {
+    if (arch_str == "gpt2") {
+        return ModelArchitecture::GPT2;
+    }
+    return ModelArchitecture::UNKNOWN;
 }
 
 bool Config::loadFromFile(const std::string &filename)
@@ -101,6 +109,14 @@ bool Config::loadFromFile(const std::string &filename)
             else if (key == "stop_token_id")
             {
                 stop_token_id = std::stoi(value);
+            }
+            else if (key == "model_arch") {
+                model_arch = parseModelArchitecture(value);
+                if (model_arch == ModelArchitecture::UNKNOWN) {
+                    std::cerr << "Warning: Unknown model architecture '" << value 
+                              << "'. Defaulting to GPT2." << std::endl;
+                    model_arch = ModelArchitecture::GPT2;
+                }
             }
         }
     }
