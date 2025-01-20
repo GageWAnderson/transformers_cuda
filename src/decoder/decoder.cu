@@ -22,9 +22,40 @@ Decoder::Decoder(const Config &config)
     // Initialize components for each layer
     for (int i = 0; i < num_layers; ++i)
     {
-        self_attention_layers[i] = new MultiHeadAttention(hidden_dim, num_heads);
-        encoder_attention_layers[i] = new MultiHeadAttention(hidden_dim, num_heads);
-        feed_forward_layers[i] = new FeedForward(hidden_dim, intermediate_dim);
+        // Initialize weights and biases as 0
+        float *W_q_ptr = nullptr, *W_k_ptr = nullptr, *W_v_ptr = nullptr, *W_o_ptr = nullptr;
+        float *b_q_ptr = nullptr, *b_k_ptr = nullptr, *b_v_ptr = nullptr, *b_o_ptr = nullptr;
+        float *W1_ptr = nullptr, *b1_ptr = nullptr, *W2_ptr = nullptr, *b2_ptr = nullptr;
+
+        cudaMalloc(&W_q_ptr, hidden_dim * hidden_dim * sizeof(float));
+        cudaMalloc(&W_k_ptr, hidden_dim * hidden_dim * sizeof(float));
+        cudaMalloc(&W_v_ptr, hidden_dim * hidden_dim * sizeof(float));
+        cudaMalloc(&W_o_ptr, hidden_dim * hidden_dim * sizeof(float));
+        cudaMalloc(&b_q_ptr, hidden_dim * sizeof(float));
+        cudaMalloc(&b_k_ptr, hidden_dim * sizeof(float));
+        cudaMalloc(&b_v_ptr, hidden_dim * sizeof(float));
+        cudaMalloc(&b_o_ptr, hidden_dim * sizeof(float));
+        cudaMalloc(&W1_ptr, hidden_dim * intermediate_dim * sizeof(float));
+        cudaMalloc(&b1_ptr, intermediate_dim * sizeof(float));
+        cudaMalloc(&W2_ptr, intermediate_dim * hidden_dim * sizeof(float));
+        cudaMalloc(&b2_ptr, hidden_dim * sizeof(float));
+
+        cudaMemset(W_q_ptr, 0, hidden_dim * hidden_dim * sizeof(float));
+        cudaMemset(W_k_ptr, 0, hidden_dim * hidden_dim * sizeof(float));
+        cudaMemset(W_v_ptr, 0, hidden_dim * hidden_dim * sizeof(float));
+        cudaMemset(W_o_ptr, 0, hidden_dim * hidden_dim * sizeof(float));
+        cudaMemset(b_q_ptr, 0, hidden_dim * sizeof(float));
+        cudaMemset(b_k_ptr, 0, hidden_dim * sizeof(float));
+        cudaMemset(b_v_ptr, 0, hidden_dim * sizeof(float));
+        cudaMemset(b_o_ptr, 0, hidden_dim * sizeof(float));
+        cudaMemset(W1_ptr, 0, hidden_dim * intermediate_dim * sizeof(float));
+        cudaMemset(b1_ptr, 0, intermediate_dim * sizeof(float));
+        cudaMemset(W2_ptr, 0, intermediate_dim * hidden_dim * sizeof(float));
+        cudaMemset(b2_ptr, 0, hidden_dim * sizeof(float));
+
+        self_attention_layers[i] = new MultiHeadAttention(hidden_dim, num_heads, W_q_ptr, W_k_ptr, W_v_ptr, W_o_ptr);
+        encoder_attention_layers[i] = new MultiHeadAttention(hidden_dim, num_heads, W_q_ptr, W_k_ptr, W_v_ptr, W_o_ptr);
+        feed_forward_layers[i] = new FeedForward(hidden_dim, intermediate_dim, W1_ptr, b1_ptr, W2_ptr, b2_ptr);
         layer_norm1_layers[i] = new LayerNorm(hidden_dim);
         layer_norm2_layers[i] = new LayerNorm(hidden_dim);
         layer_norm3_layers[i] = new LayerNorm(hidden_dim);

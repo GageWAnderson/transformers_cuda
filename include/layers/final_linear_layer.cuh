@@ -12,8 +12,7 @@ class FinalLinearLayer
 public:
     FinalLinearLayer(const Config &config,
                      cublasHandle_t &cublas_handle,
-                     cudnnHandle_t &cudnn_handle,
-                     curandGenerator_t &curand_gen);
+                     cudnnHandle_t &cudnn_handle, float *external_linear_weights);
 
     ~FinalLinearLayer();
 
@@ -24,7 +23,6 @@ private:
     const Config &config_;
     cublasHandle_t &cublas_;
     cudnnHandle_t &cudnn_;
-    curandGenerator_t &curand_gen_;
 
     float *d_linear_weights_ = nullptr;
 

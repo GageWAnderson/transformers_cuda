@@ -34,6 +34,11 @@ struct Config
 
     // Function to load configurations from a file
     bool loadFromFile(const std::string &filename);
+
+    // Helper to check if architecture is supported
+    bool isArchitectureSupported() const {
+        return model_arch == ModelArchitecture::GPT2;
+    }
 };
 
 #endif // CONFIG_H

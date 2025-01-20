@@ -6,7 +6,6 @@
 #include "utils/softmax.cuh"
 #include <cublas_v2.h>
 #include <math.h>
-#include "utils/weight_init.cuh"
 
 void computeAttentionScores(const float *Q, const float *K, float *attention_scores,
                             int batch_size, int num_heads, int seq_len, int head_dim,
@@ -190,35 +189,23 @@ void computeAttentionOutput(const float *attention_scores, const float *V, float
     }
 }
 
-MultiHeadAttention::MultiHeadAttention(int hidden_dim, int num_heads)
+// New constructor: accepts pre-loaded weights
+MultiHeadAttention::MultiHeadAttention(int hidden_dim, int num_heads,
+                                       float *W_q_ptr, float *W_k_ptr,
+                                       float *W_v_ptr, float *W_o_ptr)
 {
     this->hidden_dim = hidden_dim;
     this->num_heads = num_heads;
     this->head_dim = hidden_dim / num_heads;
 
-    // Initialize cuBLAS handle
+    // Create cuBLAS handle
     cublasCreate(&cublas_handle);
 
-    // Allocate memory for weights and biases
-    size_t weight_size = hidden_dim * hidden_dim; // Number of elements
-    size_t weight_bytes = weight_size * sizeof(float);
-    cudaMalloc((void **)&W_q, weight_bytes);
-    cudaMalloc((void **)&W_k, weight_bytes);
-    cudaMalloc((void **)&W_v, weight_bytes);
-    cudaMalloc((void **)&W_o, weight_bytes);
-
-    // Initialize weights using weight_init utility
-    curandGenerator_t curand_gen;
-    curandCreateGenerator(&curand_gen, CURAND_RNG_PSEUDO_DEFAULT);
-    curandSetPseudoRandomGeneratorSeed(curand_gen, 1234ULL);
-
-    initializeWeights(curand_gen, W_q, weight_size);
-    initializeWeights(curand_gen, W_k, weight_size);
-    initializeWeights(curand_gen, W_v, weight_size);
-    initializeWeights(curand_gen, W_o, weight_size);
-
-    // Destroy cuRAND generator
-    curandDestroyGenerator(curand_gen);
+    // Use pre-loaded GPU pointers
+    this->W_q = W_q_ptr;
+    this->W_k = W_k_ptr;
+    this->W_v = W_v_ptr;
+    this->W_o = W_o_ptr;
 }
 
 MultiHeadAttention::~MultiHeadAttention()

@@ -2,6 +2,7 @@
 #include <fstream>
 #include <sstream>
 #include <iostream>
+#include <algorithm>
 
 Config::Config() : num_layers(6), hidden_dim(512), num_heads(8),
                    intermediate_dim(2048), vocab_size(30522), embedding_dim(512), max_seq_len(512),
@@ -12,9 +13,15 @@ Config::Config() : num_layers(6), hidden_dim(512), num_heads(8),
 }
 
 ModelArchitecture Config::parseModelArchitecture(const std::string& arch_str) {
-    if (arch_str == "gpt2") {
+    // Convert to lowercase for case-insensitive comparison
+    std::string lower_arch = arch_str;
+    std::transform(lower_arch.begin(), lower_arch.end(), lower_arch.begin(), ::tolower);
+    
+    if (lower_arch == "gpt2") {
         return ModelArchitecture::GPT2;
     }
+    
+    // If not recognized, return UNKNOWN
     return ModelArchitecture::UNKNOWN;
 }
 
@@ -122,6 +129,14 @@ bool Config::loadFromFile(const std::string &filename)
     }
 
     file.close();
+
+    // After loading, validate the architecture
+    if (!isArchitectureSupported()) {
+        std::cerr << "Error: Model architecture '" << static_cast<int>(model_arch) 
+                  << "' is not supported." << std::endl;
+        return false;
+    }
+
     return true;
 }
 

@@ -226,7 +226,7 @@ std::pair<size_t, Metadata> SafeTensors::read_metadata(const std::vector<uint8_t
     return {8 + header_length, Metadata(metadata, tensors)};
 }
 
-ModelDimensions loadModelWeights(const std::string &weights_file)
+ModelDimensions loadGPT2ModelWeights(const std::string &weights_file)
 {
     ModelDimensions dims{0, 0, 0, 0, 0, 0, false};
     try

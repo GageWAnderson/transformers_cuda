@@ -3,78 +3,59 @@
 #include <cublas_v2.h>
 #include <curand.h>
 #include <curand_kernel.h>
-#include "utils/weight_init.cuh"
 
 // Activation function (ReLU)
-__global__ void relu_activation(float* data, int size) {
+__global__ void relu_activation(float *data, int size)
+{
     int idx = blockDim.x * blockIdx.x + threadIdx.x;
-    if (idx < size) {
+    if (idx < size)
+    {
         data[idx] = fmaxf(0.0f, data[idx]);
     }
 }
 
 // Kernel to add bias
-__global__ void add_bias(float* data, const float* bias, int seq_len, int dim) {
+__global__ void add_bias(float *data, const float *bias, int seq_len, int dim)
+{
     int idx = blockDim.x * blockIdx.x + threadIdx.x;
     int total_size = seq_len * dim;
-    if (idx < total_size) {
+    if (idx < total_size)
+    {
         int bias_idx = idx % dim;
         data[idx] += bias[bias_idx];
     }
 }
 
 // Helper function to initialize biases with zeros
-void initialize_biases(float* d_biases, size_t size, cudaStream_t stream) {
+void initialize_biases(float *d_biases, size_t size, cudaStream_t stream)
+{
     cudaMemsetAsync(d_biases, 0, size, stream);
 }
 
-FeedForward::FeedForward(int hidden_dim, int intermediate_dim) {
+FeedForward::FeedForward(int hidden_dim, int intermediate_dim,
+                         float *W1_ptr, float *b1_ptr,
+                         float *W2_ptr, float *b2_ptr)
+{
     this->hidden_dim = hidden_dim;
     this->intermediate_dim = intermediate_dim;
 
-    // Allocate weights and biases
-    size_t size_W1 = hidden_dim * intermediate_dim * sizeof(float);
-    size_t size_b1 = intermediate_dim * sizeof(float);
-    size_t size_W2 = intermediate_dim * hidden_dim * sizeof(float);
-    size_t size_b2 = hidden_dim * sizeof(float);
-
-    cudaMalloc(&d_W1, size_W1);
-    cudaMalloc(&d_b1, size_b1);
-    cudaMalloc(&d_W2, size_W2);
-    cudaMalloc(&d_b2, size_b2);
-
-    // Initialize weights using shared weight initialization
-    curandGenerator_t curand_gen;
-    curandCreateGenerator(&curand_gen, CURAND_RNG_PSEUDO_DEFAULT);
-    curandSetPseudoRandomGeneratorSeed(curand_gen, 1234ULL);
-
-    initializeWeights(curand_gen, d_W1, hidden_dim * intermediate_dim);
-    initializeWeights(curand_gen, d_W2, intermediate_dim * hidden_dim);
-
-    // Initialize biases with zeros
-    cudaStream_t stream;
-    cudaStreamCreate(&stream);
-    initialize_biases(d_b1, size_b1, stream);
-    initialize_biases(d_b2, size_b2, stream);
-    cudaStreamDestroy(stream);
-
-    // Cleanup
-    curandDestroyGenerator(curand_gen);
+    // Just store pointers from loaded weights
+    d_W1 = W1_ptr;
+    d_b1 = b1_ptr;
+    d_W2 = W2_ptr;
+    d_b2 = b2_ptr;
 }
 
-FeedForward::~FeedForward() {
-    // Free allocated memory
-    cudaFree(d_W1);
-    cudaFree(d_b1);
-    cudaFree(d_W2);
-    cudaFree(d_b2);
+FeedForward::~FeedForward()
+{
 }
 
-void FeedForward::forward(float* output, const float* input, int seq_len, cudaStream_t stream) {
+void FeedForward::forward(float *output, const float *input, int seq_len, cudaStream_t stream)
+{
     // Implement the feed-forward network forward pass
 
     // Allocate intermediate memory
-    float* d_intermediate = nullptr;
+    float *d_intermediate = nullptr;
     size_t intermediate_size = seq_len * intermediate_dim * sizeof(float);
     cudaMalloc(&d_intermediate, intermediate_size);
 

@@ -106,4 +106,4 @@ void serialize_to_file(std::vector<std::pair<S, V>> &data,
                        const std::optional<std::unordered_map<std::string, std::string>> &data_info,
                        const std::string &filename);
 
-ModelDimensions loadModelWeights(const std::string &weights_file);
+ModelDimensions loadGPT2ModelWeights(const std::string &weights_file);

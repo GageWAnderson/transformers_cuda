@@ -1,7 +1,6 @@
 #include <vector>
 #include <iostream>
 #include "layers/final_linear_layer.cuh"
-#include "utils/weight_init.cuh"
 #include "utils/softmax.cuh"
 #include "utils/utils.cuh"
 #include <cuda_runtime.h>
@@ -14,20 +13,23 @@
  * @param vocab_size Size of vocabulary
  * @param batch_seq_len Combined batch and sequence length
  * @param hidden_dim Hidden dimension size
- * 
+ *
  * Performs matrix multiplication between input and weights to produce logits.
  * Each thread computes one element of the output matrix.
  */
-__global__ void linearTransformKernel(const float* input, const float* weights, float* output,
-                                    int vocab_size, int batch_seq_len, int hidden_dim) {
+__global__ void linearTransformKernel(const float *input, const float *weights, float *output,
+                                      int vocab_size, int batch_seq_len, int hidden_dim)
+{
     // Calculate global thread indices
     int row = blockIdx.x * blockDim.x + threadIdx.x; // For vocab_size dimension
     int col = blockIdx.y * blockDim.y + threadIdx.y; // For batch_seq_len dimension
-    
-    if (row < vocab_size && col < batch_seq_len) {
+
+    if (row < vocab_size && col < batch_seq_len)
+    {
         float sum = 0.0f;
         // Perform dot product between input and weights
-        for (int k = 0; k < hidden_dim; k++) {
+        for (int k = 0; k < hidden_dim; k++)
+        {
             sum += weights[row * hidden_dim + k] * input[col * hidden_dim + k];
         }
         output[col * vocab_size + row] = sum;
@@ -40,20 +42,19 @@ __global__ void linearTransformKernel(const float* input, const float* weights, 
  * @param cublas_handle cuBLAS handle
  * @param cudnn_handle cuDNN handle
  * @param curand_gen cuRAND generator
- * 
+ *
  * Initializes final linear layer that projects hidden states to vocabulary size.
  */
 FinalLinearLayer::FinalLinearLayer(const Config &config,
                                    cublasHandle_t &cublas_handle,
-                                   cudnnHandle_t &cudnn_handle,
-                                   curandGenerator_t &curand_gen)
-    : config_(config), cublas_(cublas_handle), cudnn_(cudnn_handle), curand_gen_(curand_gen)
+                                   cudnnHandle_t &cudnn_handle, float *external_linear_weights)
+    : config_(config), cublas_(cublas_handle), cudnn_(cudnn_handle)
 {
 }
 
 /**
  * @brief Destructor for the FinalLinearLayer class
- * 
+ *
  * Cleans up all allocated memory for layer components including
  * weights and layer normalization.
  */
@@ -64,22 +65,19 @@ FinalLinearLayer::~FinalLinearLayer()
 
 /**
  * @brief Initializes layer weights
- * 
+ *
  * Allocates memory for and initializes weights with random values
  * using cuRAND generator.
  */
 void FinalLinearLayer::initialize()
 {
-    allocateWeights();
-
-    // Initialize weights with random values
-    size_t weight_size = config_.hidden_dim * config_.vocab_size;
-    initializeWeights(curand_gen_, d_linear_weights_, weight_size);
+    // This can be left empty or removed,
+    // since we no longer allocate or init weights here.
 }
 
 /**
  * @brief Allocates memory for layer weights
- * 
+ *
  * Allocates GPU memory for the weight matrix used in linear transformation.
  */
 void FinalLinearLayer::allocateWeights()
@@ -90,7 +88,7 @@ void FinalLinearLayer::allocateWeights()
 
 /**
  * @brief Frees allocated weight memory
- * 
+ *
  * Releases GPU memory used for weights when layer is destroyed.
  */
 void FinalLinearLayer::freeWeights()
@@ -107,7 +105,7 @@ void FinalLinearLayer::freeWeights()
  * @param d_input Input hidden states
  * @param d_logits Output logits
  * @param seq_len Sequence length
- * 
+ *
  * Projects hidden states to vocabulary size using linear transformation,
  * then applies softmax to get probability distribution over vocabulary.
  */
@@ -119,14 +117,13 @@ void FinalLinearLayer::forward(float *d_input, float *d_logits, int seq_len)
     int hidden_dim = config_.hidden_dim;
 
     // Define block and grid dimensions
-    dim3 blockDim(16, 16);  // 256 threads per block
+    dim3 blockDim(16, 16); // 256 threads per block
     dim3 gridDim(
         (vocab_size + blockDim.x - 1) / blockDim.x,
-        (batch_seq_len + blockDim.y - 1) / blockDim.y
-    );
+        (batch_seq_len + blockDim.y - 1) / blockDim.y);
 
-    std::cout << "Dimensions - vocab_size: " << vocab_size 
-              << ", batch_seq_len: " << batch_seq_len 
+    std::cout << "Dimensions - vocab_size: " << vocab_size
+              << ", batch_seq_len: " << batch_seq_len
               << ", hidden_dim: " << hidden_dim << std::endl;
     std::cout << "Grid dims - x: " << gridDim.x << ", y: " << gridDim.y << std::endl;
 
@@ -137,12 +134,12 @@ void FinalLinearLayer::forward(float *d_input, float *d_logits, int seq_len)
         d_logits,
         vocab_size,
         batch_seq_len,
-        hidden_dim
-    );
+        hidden_dim);
 
     // Check for kernel launch errors
     cudaError_t error = cudaGetLastError();
-    if (error != cudaSuccess) {
+    if (error != cudaSuccess)
+    {
         std::cerr << "CUDA error in linear transform kernel: " << cudaGetErrorString(error) << std::endl;
     }
 

@@ -7,7 +7,7 @@
 /**
  * @brief Constructs an Encoder with the given configuration
  * @param config Configuration object containing model parameters
- * 
+ *
  * Initializes a transformer encoder with the specified number of layers,
  * hidden dimensions, attention heads, and intermediate dimensions.
  * Allocates memory for all layer components including self-attention,
@@ -29,8 +29,13 @@ Encoder::Encoder(const Config &config)
     // Initialize components for each layer
     for (int i = 0; i < num_layers; ++i)
     {
-        self_attention_layers[i] = new MultiHeadAttention(hidden_dim, num_heads);
-        feed_forward_layers[i] = new FeedForward(hidden_dim, intermediate_dim);
+        // Initialize weights and biases as null
+        float *W_q_ptr = nullptr, *W_k_ptr = nullptr, *W_v_ptr = nullptr, *W_o_ptr = nullptr;
+        float *b_q_ptr = nullptr, *b_k_ptr = nullptr, *b_v_ptr = nullptr, *b_o_ptr = nullptr;
+        float *W1_ptr = nullptr, *b1_ptr = nullptr, *W2_ptr = nullptr, *b2_ptr = nullptr;
+
+        self_attention_layers[i] = new MultiHeadAttention(hidden_dim, num_heads, W_q_ptr, W_k_ptr, W_v_ptr, W_o_ptr);
+        feed_forward_layers[i] = new FeedForward(hidden_dim, intermediate_dim, W1_ptr, b1_ptr, W2_ptr, b2_ptr);
         layer_norm1_layers[i] = new LayerNorm(hidden_dim);
         layer_norm2_layers[i] = new LayerNorm(hidden_dim);
     }
@@ -38,7 +43,7 @@ Encoder::Encoder(const Config &config)
 
 /**
  * @brief Destructor for the Encoder class
- * 
+ *
  * Cleans up all allocated memory for layer components including
  * self-attention layers, feed-forward networks, and layer normalization.
  */
@@ -65,7 +70,7 @@ Encoder::~Encoder()
  * @param batch_size Number of sequences in batch
  * @param seq_len Length of input sequences
  * @param stream CUDA stream for asynchronous execution
- * 
+ *
  * Processes input through multiple encoder layers with self-attention,
  * feed-forward networks, residual connections and layer normalization.
  * Uses multiple CUDA streams for parallel operations where possible.
@@ -93,7 +98,7 @@ void Encoder::forward(float *output, const float *input, int batch_size, int seq
 
         // Layer Norm 1 and Self-Attention can start in parallel
         layer_norm1_layers[i]->forward(current_output, current_input, seq_len, norm_stream);
-        
+
         // Wait for norm to complete before attention
         cudaStreamSynchronize(norm_stream);
         self_attention_layers[i]->forward(current_output, current_output, batch_size, seq_len, attn_stream);

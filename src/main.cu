@@ -7,7 +7,6 @@
 #include "cudnn.h"
 #include "utils/utils.cuh"
 #include "utils/softmax.cuh"
-#include "utils/weight_init.cuh"
 #include "embeddings/token_embeddings.cuh"
 #include "embeddings/positional_encoding.cuh"
 #include "tokenizer/vocab.cuh"
@@ -93,7 +92,7 @@ bool parseArguments(int argc, char *argv[], Config &config)
     // If weights file was specified, try to load it
     if (!weights_file.empty())
     {
-        auto dims = loadModelWeights(weights_file);
+        auto dims = loadGPT2ModelWeights(weights_file);
         if (!dims.valid)
         {
             std::cerr << "Failed to load weights from: " << weights_file << std::endl;
@@ -298,7 +297,7 @@ int main(int argc, char *argv[])
     cudaMalloc(&d_current_token_embedding, decoder_input_size);
 
     // Create and initialize the FinalLinearLayer
-    FinalLinearLayer final_linear_layer(config, cublas, cudnn, curand_gen);
+    FinalLinearLayer final_linear_layer(config, cublas, cudnn, nullptr);
     final_linear_layer.initialize();
 
     debugPrint("\nGenerating tokens:\n");
