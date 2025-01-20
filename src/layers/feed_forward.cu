@@ -39,7 +39,7 @@ FeedForward::FeedForward(int hidden_dim, int intermediate_dim,
     this->hidden_dim = hidden_dim;
     this->intermediate_dim = intermediate_dim;
 
-    // Just store pointers from loaded weights
+    // Initialize pointers - they will be set later via setters if null
     d_W1 = W1_ptr;
     d_b1 = b1_ptr;
     d_W2 = W2_ptr;

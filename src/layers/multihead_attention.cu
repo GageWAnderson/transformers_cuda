@@ -191,21 +191,29 @@ void computeAttentionOutput(const float *attention_scores, const float *V, float
 
 // New constructor: accepts pre-loaded weights
 MultiHeadAttention::MultiHeadAttention(int hidden_dim, int num_heads,
-                                       float *W_q_ptr, float *W_k_ptr,
-                                       float *W_v_ptr, float *W_o_ptr)
+                                     float* W_q_ptr, float* W_k_ptr,
+                                     float* W_v_ptr, float* W_o_ptr,
+                                     float* b_q_ptr, float* b_k_ptr,
+                                     float* b_v_ptr, float* b_o_ptr)
 {
     this->hidden_dim = hidden_dim;
     this->num_heads = num_heads;
     this->head_dim = hidden_dim / num_heads;
 
-    // Create cuBLAS handle
-    cublasCreate(&cublas_handle);
-
-    // Use pre-loaded GPU pointers
+    // Initialize weights
     this->W_q = W_q_ptr;
     this->W_k = W_k_ptr;
     this->W_v = W_v_ptr;
     this->W_o = W_o_ptr;
+
+    // Initialize biases
+    this->b_q = b_q_ptr;
+    this->b_k = b_k_ptr;
+    this->b_v = b_v_ptr;
+    this->b_o = b_o_ptr;
+
+    // Create cuBLAS handle
+    cublasCreate(&cublas_handle);
 }
 
 MultiHeadAttention::~MultiHeadAttention()

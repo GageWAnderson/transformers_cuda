@@ -25,17 +25,16 @@ private:
     LayerNorm **layer_norm3_layers;
 
 public:
-    Decoder(const Config &config);
+    // Updated constructor to take weights
+    Decoder(const Config &config, const GPT2Weights* weights);
     ~Decoder();
 
     void forward(float *output,
-                 const float *input,
-                 const float *encoder_output,
-                 int batch_size,
-                 int seq_len,
-                 cudaStream_t stream);
-
-    void loadWeights(const GPT2Weights* weights);
+                const float *input,
+                const float *encoder_output,
+                int batch_size,
+                int seq_len,
+                cudaStream_t stream);
 };
 
 #endif // DECODER_H

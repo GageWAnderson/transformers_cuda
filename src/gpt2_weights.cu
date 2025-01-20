@@ -39,23 +39,32 @@ GPT2Weights::GPT2Weights(ModelDimensions &dims,
     debugPrint("Detected %d layers in weights\n", dims.num_layers);
 
     // Set other dimensions based on tensor shapes
+    int max_head_number = -1;
     for (const auto &[name, info] : tensor_infos) {
         if (name == "wte.weight" || name.find("transformer.wte.weight") != std::string::npos) {
             // Token embedding shape is [vocab_size, hidden_dim]
-            dims.vocab_size = info.shape[0];
+            dims.vocab_size = info.shape[0]; // TODO: Vocab size should be a power of 2
             dims.hidden_dim = info.shape[1];
-            dims.embedding_dim = info.shape[1];  // Same as hidden_dim for GPT-2
+            dims.embedding_dim = info.shape[1];
+            dims.intermediate_dim = dims.hidden_dim * 4; // Intermediate dim is 4x hidden dim for GPT-2
         }
-        else if (name == "h.0.attn.c_attn.weight" || name.find("transformer.h.0.attn.c_attn.weight") != std::string::npos) {
-            // QKV weight shape is [hidden_dim, 3 * hidden_dim]
-            // Number of attention heads can be inferred from hidden_dim (hidden_dim must be divisible by num_heads)
-            dims.num_heads = dims.hidden_dim / 64;  // GPT-2 uses 64 as head dimension
-        }
-        else if (name == "h.0.mlp.c_fc.weight" || name.find("transformer.h.0.mlp.c_fc.weight") != std::string::npos) {
-            // First FFN layer shape is [hidden_dim, intermediate_dim]
-            dims.intermediate_dim = info.shape[1];
+        else if (name.find("h.") != std::string::npos) {
+            // Extract the layer number after "h."
+            size_t pos = name.find("h.") + 2;
+            size_t end = name.find(".", pos);
+            if (end != std::string::npos) {
+                try {
+                    int head_number = std::stoi(name.substr(pos, end - pos));
+                    max_head_number = std::max(max_head_number, head_number);
+                } catch (...) {
+                    continue;
+                }
+            }
         }
     }
+
+    // Set the number of heads based on the highest head number found
+    dims.num_heads = max_head_number + 1; // Convert from 0-based to count
 
     debugPrint("Model dimensions from weights:\n");
     debugPrint("  Vocabulary size: %d\n", dims.vocab_size);

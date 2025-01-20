@@ -6,19 +6,19 @@
 #include "cudnn.h"
 #include "curand.h"
 #include "config.cuh"
+#include "gpt2_weights.cuh"
 
 class FinalLinearLayer
 {
 public:
     FinalLinearLayer(const Config &config,
                      cublasHandle_t &cublas_handle,
-                     cudnnHandle_t &cudnn_handle, float *external_linear_weights);
+                     cudnnHandle_t &cudnn_handle,
+                     const GPT2Weights* weights);
 
     ~FinalLinearLayer();
 
-    void initialize();
     void forward(float *d_input, float *d_logits, int seq_len);
-    void loadWeights(float *weights, float *bias);
 
 private:
     const Config &config_;

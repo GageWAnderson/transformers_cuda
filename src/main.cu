@@ -58,19 +58,7 @@ bool parseArguments(int argc, char *argv[], Config &config, std::string &weights
     for (int i = 1; i < argc; ++i)
     {
         std::string arg = argv[i];
-        if (arg.find("--layers=") == 0)
-        {
-            config.num_layers = std::stoi(arg.substr(9));
-        }
-        else if (arg.find("--hidden_dim=") == 0)
-        {
-            config.hidden_dim = std::stoi(arg.substr(13));
-        }
-        else if (arg.find("--heads=") == 0)
-        {
-            config.num_heads = std::stoi(arg.substr(8));
-        }
-        else if (arg.find("--weights=") == 0)
+        if (arg.find("--weights=") == 0)
         {
             weights_file = arg.substr(10);
         }
@@ -88,21 +76,6 @@ bool parseArguments(int argc, char *argv[], Config &config, std::string &weights
     }
 
     return true;
-}
-
-// Helper function to display initialized parameters
-/**
- * @brief Displays model parameters
- * @param config Config object containing parameters
- *
- * Prints initialized model parameters to console.
- */
-void displayParameters(const Config &config)
-{
-    debugPrint("Initializing Transformer model with the following parameters:\n");
-    debugPrint("Number of layers: %d\n", config.num_layers);
-    debugPrint("Hidden dimension size: %d\n", config.hidden_dim);
-    debugPrint("Number of attention heads: %d\n", config.num_heads);
 }
 
 // Helper function to load vocabulary
@@ -199,9 +172,6 @@ int main(int argc, char *argv[])
         return 1;
     }
 
-    // Display the initialized parameters
-    displayParameters(config);
-
     // Load the vocabulary using the path from the config
     std::vector<std::string> vocabulary;
     loadAndDisplayVocabulary(config.vocab_file, vocabulary);
@@ -230,39 +200,19 @@ int main(int argc, char *argv[])
     debugPrint("Positional encoding created with dimensions: %d x %d\n",
                config.max_seq_len, config.embedding_dim);
 
-    // Initialize Encoder (if using encoder-decoder architecture)
-    Encoder encoder(config);
-
-    // Initialize Decoder
-    Decoder decoder(config);
-
-    // Create and initialize the FinalLinearLayer
-    FinalLinearLayer final_linear_layer(config, cublas, cudnn, nullptr);
-    final_linear_layer.initialize();
-
     // If weights file was specified, check architecture and try to load it
+    GPT2Weights *weights = nullptr;
     if (!weights_file.empty())
     {
         if (config.model_arch == ModelArchitecture::GPT2)
         {
-            GPT2Weights* weights = loadGPT2ModelWeights(weights_file);
-            if (!weights) {
+            weights = loadGPT2ModelWeights(weights_file);
+            if (!weights)
+            {
                 std::cerr << "Failed to load weights from: " << weights_file << std::endl;
                 return 1;
             }
             debugPrint("Successfully loaded GPT-2 model weights\n");
-
-            // Forward weights to encoder
-            encoder.loadWeights(weights);
-
-            // Forward weights to decoder
-            decoder.loadWeights(weights);
-
-            // Forward final layer norm weights to final linear layer
-            final_linear_layer.loadWeights(weights->getFinalLayerNormWeight(), 
-                                         weights->getFinalLayerNormBias());
-
-            delete weights;
         }
         else
         {
@@ -270,6 +220,15 @@ int main(int argc, char *argv[])
             return 1;
         }
     }
+
+    // Initialize Encoder with weights
+    Encoder encoder(config, weights);
+
+    // Initialize Decoder with weights
+    Decoder decoder(config, weights);
+
+    // Create and initialize the FinalLinearLayer with weights
+    FinalLinearLayer final_linear_layer(config, cublas, cudnn, weights);
 
     // Allocate memory for encoder input and output
     float *d_encoder_input = nullptr;
@@ -433,9 +392,6 @@ void printUsage()
 {
     std::cout << "Usage: transformer [options]\n";
     std::cout << "Options:\n";
-    std::cout << "  --layers=N        Set the number of layers (overrides config file)\n";
-    std::cout << "  --hidden_dim=N    Set the hidden dimension size (overrides config file)\n";
-    std::cout << "  --heads=N         Set the number of attention heads (overrides config file)\n";
     std::cout << "  --weights=FILE    Load model weights from SafeTensors file\n";
     std::cout << "  --help, -h        Show this help message\n";
 }

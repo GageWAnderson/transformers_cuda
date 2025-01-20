@@ -122,3 +122,11 @@ void LayerNorm::forward(float* output, const float* input, int seq_len, cudaStre
     fused_layer_norm_kernel<<<seq_len, BLOCK_SIZE, shared_mem_size, stream>>>(
         input, output, gamma, beta, nullptr, hidden_dim, seq_len, 1e-5f);
 }
+
+void LayerNorm::setGamma(float* gamma_weights) {
+    cudaMemcpy(gamma, gamma_weights, hidden_dim * sizeof(float), cudaMemcpyDeviceToDevice);
+}
+
+void LayerNorm::setBeta(float* beta_weights) {
+    cudaMemcpy(beta, beta_weights, hidden_dim * sizeof(float), cudaMemcpyDeviceToDevice);
+}

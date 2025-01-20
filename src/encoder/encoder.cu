@@ -6,15 +6,14 @@
 #include <cuda.h>
 
 /**
- * @brief Constructs an Encoder with the given configuration
+ * @brief Constructs an Encoder with the given configuration and weights
  * @param config Configuration object containing model parameters
+ * @param weights GPT2Weights object containing model weights
  *
- * Initializes a transformer encoder with the specified number of layers,
- * hidden dimensions, attention heads, and intermediate dimensions.
- * Allocates memory for all layer components including self-attention,
- * feed-forward networks, and layer normalization.
+ * Initializes a transformer encoder with the specified parameters and weights.
+ * Allocates memory for all layer components and initializes them with the provided weights.
  */
-Encoder::Encoder(const Config &config)
+Encoder::Encoder(const Config &config, const GPT2Weights* weights)
 {
     num_layers = config.num_layers;
     hidden_dim = config.hidden_dim;
@@ -27,14 +26,31 @@ Encoder::Encoder(const Config &config)
     layer_norm1_layers = new LayerNorm *[num_layers];
     layer_norm2_layers = new LayerNorm *[num_layers];
 
-    // Initialize components for each layer
+    // Initialize components for each layer with weights
     for (int i = 0; i < num_layers; ++i)
     {
-        // Initialize with nullptr - weights will be set later in loadWeights()
+        // Initialize attention layer with weights
         self_attention_layers[i] = new MultiHeadAttention(hidden_dim, num_heads);
+        self_attention_layers[i]->setQueryWeight(weights->getAttentionQKVWeight(i));
+        self_attention_layers[i]->setQueryBias(weights->getAttentionQKVBias(i));
+        self_attention_layers[i]->setOutputProjWeight(weights->getAttentionProjectionWeight(i));
+        self_attention_layers[i]->setOutputProjBias(weights->getAttentionProjectionBias(i));
+
+        // Initialize feed forward layer with weights
         feed_forward_layers[i] = new FeedForward(hidden_dim, intermediate_dim);
+        feed_forward_layers[i]->setWeight1(weights->getFFNFC1Weight(i));
+        feed_forward_layers[i]->setBias1(weights->getFFNFC1Bias(i));
+        feed_forward_layers[i]->setWeight2(weights->getFFNFC2Weight(i));
+        feed_forward_layers[i]->setBias2(weights->getFFNFC2Bias(i));
+
+        // Initialize layer norms with weights
         layer_norm1_layers[i] = new LayerNorm(hidden_dim);
+        layer_norm1_layers[i]->setGamma(weights->getAttentionLayerNormWeight(i));
+        layer_norm1_layers[i]->setBeta(weights->getAttentionLayerNormBias(i));
+        
         layer_norm2_layers[i] = new LayerNorm(hidden_dim);
+        layer_norm2_layers[i]->setGamma(weights->getFFNLayerNormWeight(i));
+        layer_norm2_layers[i]->setBeta(weights->getFFNLayerNormBias(i));
     }
 }
 
@@ -128,27 +144,4 @@ void Encoder::forward(float *output, const float *input, int batch_size, int seq
     cudaFree(current_input);
     cudaFree(current_output);
     cudaFree(residual);
-}
-
-void Encoder::loadWeights(const GPT2Weights* weights) {
-    for (int i = 0; i < num_layers; i++) {
-        // Set attention weights using getters
-        self_attention_layers[i]->setQueryWeight(weights->getAttentionQKVWeight(i));
-        self_attention_layers[i]->setQueryBias(weights->getAttentionQKVBias(i));
-        self_attention_layers[i]->setOutputProjWeight(weights->getAttentionProjectionWeight(i));
-        self_attention_layers[i]->setOutputProjBias(weights->getAttentionProjectionBias(i));
-
-        // Set layer norm weights
-        layer_norm1_layers[i]->setGamma(weights->getAttentionLayerNormWeight(i));
-        layer_norm1_layers[i]->setBeta(weights->getAttentionLayerNormBias(i));
-        
-        layer_norm2_layers[i]->setGamma(weights->getFFNLayerNormWeight(i));
-        layer_norm2_layers[i]->setBeta(weights->getFFNLayerNormBias(i));
-
-        // Set FFN weights
-        feed_forward_layers[i]->setWeight1(weights->getFFNFC1Weight(i));
-        feed_forward_layers[i]->setBias1(weights->getFFNFC1Bias(i));
-        feed_forward_layers[i]->setWeight2(weights->getFFNFC2Weight(i));
-        feed_forward_layers[i]->setBias2(weights->getFFNFC2Bias(i));
-    }
 }

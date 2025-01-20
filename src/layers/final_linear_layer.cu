@@ -37,19 +37,40 @@ __global__ void linearTransformKernel(const float *input, const float *weights, 
 }
 
 /**
- * @brief Constructs final linear layer
+ * @brief Constructs final linear layer with configuration and weights
  * @param config Model configuration
  * @param cublas_handle cuBLAS handle
  * @param cudnn_handle cuDNN handle
- * @param curand_gen cuRAND generator
+ * @param weights GPT2Weights object containing model weights
  *
- * Initializes final linear layer that projects hidden states to vocabulary size.
+ * Initializes final linear layer and loads weights for projecting hidden states to vocabulary size.
  */
 FinalLinearLayer::FinalLinearLayer(const Config &config,
                                    cublasHandle_t &cublas_handle,
-                                   cudnnHandle_t &cudnn_handle, float *external_linear_weights)
+                                   cudnnHandle_t &cudnn_handle,
+                                   const GPT2Weights *weights)
     : config_(config), cublas_(cublas_handle), cudnn_(cudnn_handle)
 {
+    // Allocate memory for weights
+    allocateWeights();
+
+    if (weights)
+    {
+        // Calculate sizes
+        size_t weights_size = config_.hidden_dim * config_.vocab_size * sizeof(float);
+        size_t bias_size = config_.vocab_size * sizeof(float);
+
+        // Copy weights to device
+        cudaMemcpy(d_linear_weights_, weights->getFinalLayerNormWeight(),
+                   weights_size, cudaMemcpyHostToDevice);
+
+        // Copy bias if available
+        float *bias = weights->getFinalLayerNormBias();
+        if (bias)
+        {
+            cudaMemcpy(d_linear_bias_, bias, bias_size, cudaMemcpyHostToDevice);
+        }
+    }
 }
 
 /**
@@ -61,18 +82,6 @@ FinalLinearLayer::FinalLinearLayer(const Config &config,
 FinalLinearLayer::~FinalLinearLayer()
 {
     freeWeights();
-}
-
-/**
- * @brief Initializes layer weights
- *
- * Allocates memory for and initializes weights with random values
- * using cuRAND generator.
- */
-void FinalLinearLayer::initialize()
-{
-    // This can be left empty or removed,
-    // since we no longer allocate or init weights here.
 }
 
 /**
@@ -98,41 +107,11 @@ void FinalLinearLayer::freeWeights()
         cudaFree(d_linear_weights_);
         d_linear_weights_ = nullptr;
     }
-    
+
     if (d_linear_bias_)
     {
         cudaFree(d_linear_bias_);
         d_linear_bias_ = nullptr;
-    }
-}
-
-/**
- * @brief Loads pre-trained weights and biases into the layer
- * @param weights Pointer to weights data
- * @param bias Pointer to bias data
- * 
- * Copies provided weights and biases to GPU memory for use in forward pass.
- */
-void FinalLinearLayer::loadWeights(float *weights, float *bias)
-{
-    // Allocate memory if not already allocated
-    if (!d_linear_weights_) {
-        allocateWeights();
-    }
-
-    // Calculate sizes
-    size_t weights_size = config_.hidden_dim * config_.vocab_size * sizeof(float);
-    size_t bias_size = config_.vocab_size * sizeof(float);
-
-    // Copy weights to device
-    cudaMemcpy(d_linear_weights_, weights, weights_size, cudaMemcpyHostToDevice);
-
-    // Allocate and copy bias if provided
-    if (bias) {
-        if (!d_linear_bias_) {
-            cudaMalloc(&d_linear_bias_, bias_size);
-        }
-        cudaMemcpy(d_linear_bias_, bias, bias_size, cudaMemcpyHostToDevice);
     }
 }
 
@@ -180,7 +159,8 @@ void FinalLinearLayer::forward(float *d_input, float *d_logits, int seq_len)
     }
 
     // If bias is available, add it to the output
-    if (d_linear_bias_) {
+    if (d_linear_bias_)
+    {
         // TODO: Add bias addition kernel call here
         // This would need to be implemented as a separate CUDA kernel
     }

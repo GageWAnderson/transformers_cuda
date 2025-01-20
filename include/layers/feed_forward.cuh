@@ -16,8 +16,9 @@ private:
     float *d_b2; // Bias vector for the second linear layer
 
 public:
-    FeedForward(int hidden_dim, int intermediate_dim, float *W1_ptr, float *b1_ptr,
-                float *W2_ptr, float *b2_ptr);
+    FeedForward(int hidden_dim, int intermediate_dim,
+                float *W1_ptr = nullptr, float *b1_ptr = nullptr,
+                float *W2_ptr = nullptr, float *b2_ptr = nullptr);
     ~FeedForward();
 
     void forward(float *output, const float *input, int seq_len, cudaStream_t stream);
