@@ -10,6 +10,7 @@
 #include "model_dimensions.cuh"
 #include "gpt2_weights.cuh"
 #include "config.cuh"
+#include "utils/load_weights.cuh"
 
 using json = nlohmann::json;
 
@@ -226,9 +227,11 @@ std::pair<size_t, Metadata> SafeTensors::read_metadata(const std::vector<uint8_t
     return {8 + header_length, Metadata(metadata, tensors)};
 }
 
-ModelDimensions loadGPT2ModelWeights(const std::string &weights_file)
+GPT2Weights* loadGPT2ModelWeights(const std::string &weights_file)
 {
     ModelDimensions dims{0, 0, 0, 0, 0, 0, false};
+    GPT2Weights* weights = nullptr;
+    
     try
     {
         // Read the file into a buffer
@@ -236,7 +239,7 @@ ModelDimensions loadGPT2ModelWeights(const std::string &weights_file)
         if (!file.is_open())
         {
             debugPrint("Failed to open weights file: %s\n", weights_file.c_str());
-            return dims;
+            return nullptr;
         }
 
         std::streamsize size = file.tellg();
@@ -246,7 +249,7 @@ ModelDimensions loadGPT2ModelWeights(const std::string &weights_file)
         if (!file.read(reinterpret_cast<char *>(buffer.data()), size))
         {
             debugPrint("Failed to read weights file\n");
-            return dims;
+            return nullptr;
         }
 
         // Parse the SafeTensors file
@@ -255,76 +258,18 @@ ModelDimensions loadGPT2ModelWeights(const std::string &weights_file)
 
         auto tensor_infos = safe_tensors.tensors();
 
-        // Get embedding dimension from token embeddings
-        if (auto it = std::find_if(tensor_infos.begin(), tensor_infos.end(),
-                                   [](const auto& pair) { 
-                                       return pair.first.find("wte.weight") != std::string::npos; 
-                                   });
-            it != tensor_infos.end())
-        {
-            auto& info = it->second;
-            dims.embedding_dim = info.shape[1]; // [vocab_size, embedding_dim]
-            dims.vocab_size = info.shape[0];
-        }
-
-        // Get hidden dimension from any attention layer
-        if (auto it = std::find_if(tensor_infos.begin(), tensor_infos.end(),
-                                   [](const auto& pair) { 
-                                       return pair.first.find("attn.c_attn.weight") != std::string::npos; 
-                                   });
-            it != tensor_infos.end())
-        {
-            auto& info = it->second;
-            dims.hidden_dim = info.shape[1] / 3; // [hidden_dim, 3 * hidden_dim] for QKV
-        }
-
-        // Get number of attention heads
-        if (auto it = std::find_if(tensor_infos.begin(), tensor_infos.end(),
-                                   [](const auto& pair) { 
-                                       return pair.first.find("attn.c_attn.weight") != std::string::npos; 
-                                   });
-            it != tensor_infos.end())
-        {
-            auto& info = it->second;
-            dims.num_heads = info.shape[0] / dims.hidden_dim; // [num_heads, hidden_dim]
-        }
-
-        // Get intermediate dimension from FFN
-        if (auto it = std::find_if(tensor_infos.begin(), tensor_infos.end(),
-                                   [](const auto& pair) { 
-                                       return pair.first.find("ffn.linear1.weight") != std::string::npos; 
-                                   });
-            it != tensor_infos.end())
-        {
-            auto& info = it->second;
-            dims.intermediate_dim = info.shape[1]; // [hidden_dim, intermediate_dim]
-        }
-
-        // Print the safetensor fields
-        for (const auto &tensor : tensor_infos)
-        {
-            debugPrint("Tensor name: %s\n", tensor.first.c_str());
-            debugPrint("  Dtype: %d\n", static_cast<int>(tensor.second.dtype));
-            debugPrint("  Shape: ");
-            for (const auto &dim : tensor.second.shape)
-            {
-                debugPrint("%zu ", dim);
-            }
-            debugPrint("\n");
-            debugPrint("  Data offsets: %zu - %zu\n", tensor.second.data_offsets.first, tensor.second.data_offsets.second);
-        }
-
-        // Create and load the weights - note we pass tensor_infos to detect layers
-        GPT2Weights weights(dims, tensor_infos);
-        if (!weights.loadWeights(tensor_infos, safe_tensors.get_data()))
+        // Create GPT2Weights object which will also populate dims
+        weights = new GPT2Weights(dims, tensor_infos);
+        
+        // Load the actual weights data
+        if (!weights->loadWeights(tensor_infos, safe_tensors.get_data()))
         {
             debugPrint("Failed to load some weights\n");
-            dims.valid = false;
-            return dims;
+            delete weights;
+            return nullptr;
         }
 
-        dims.valid = true;
-        debugPrint("Derived model dimensions:\n");
+        debugPrint("Successfully loaded GPT-2 weights\n");
         debugPrint("  num_layers: %d\n", dims.num_layers);
         debugPrint("  hidden_dim: %d\n", dims.hidden_dim);
         debugPrint("  num_heads: %d\n", dims.num_heads);
@@ -332,11 +277,14 @@ ModelDimensions loadGPT2ModelWeights(const std::string &weights_file)
         debugPrint("  vocab_size: %d\n", dims.vocab_size);
         debugPrint("  embedding_dim: %d\n", dims.embedding_dim);
 
-        return dims;
+        return weights;
     }
     catch (const std::exception &e)
     {
         debugPrint("Error loading weights: %s\n", e.what());
-        return dims;
+        if (weights) {
+            delete weights;
+        }
+        return nullptr;
     }
 }

@@ -7,6 +7,9 @@
 #include <stdexcept>
 #include "model_dimensions.cuh"
 
+// Forward declare GPT2Weights class instead of including the header
+class GPT2Weights;
+
 enum class Dtype
 {
     BOOL,
@@ -84,7 +87,7 @@ public:
     std::vector<std::string> names() const;
     size_t len() const;
     bool is_empty() const;
-    const std::vector<uint8_t>& get_data() const { return data; }
+    const std::vector<uint8_t> &get_data() const { return data; }
 
 private:
     Metadata metadata;
@@ -106,4 +109,5 @@ void serialize_to_file(std::vector<std::pair<S, V>> &data,
                        const std::optional<std::unordered_map<std::string, std::string>> &data_info,
                        const std::string &filename);
 
-ModelDimensions loadGPT2ModelWeights(const std::string &weights_file);
+// Declare the function
+GPT2Weights *loadGPT2ModelWeights(const std::string &weights_file);

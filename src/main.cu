@@ -18,6 +18,7 @@
 #include "layers/final_linear_layer.cuh"
 #include "utils/debug.cuh"
 #include "utils/load_weights.cuh"
+#include "gpt2_weights.cuh"
 #include <fstream>
 
 // Function to display usage instructions
@@ -94,14 +95,13 @@ bool parseArguments(int argc, char *argv[], Config &config)
     {
         if (config.model_arch == ModelArchitecture::GPT2)
         {
-            auto dims = loadGPT2ModelWeights(weights_file);
-            if (!dims.valid)
-            {
+            GPT2Weights* weights = loadGPT2ModelWeights(weights_file);
+            if (!weights) {
                 std::cerr << "Failed to load weights from: " << weights_file << std::endl;
                 return false;
             }
-            // Update config with dimensions from weights
-            config.updateFromWeights(dims);
+            debugPrint("Successfully loaded GPT-2 model weights\n");
+            delete weights;
         }
         else
         {
