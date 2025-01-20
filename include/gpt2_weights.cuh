@@ -26,13 +26,20 @@ struct LayerWeights
     float *ffn_fc1_bias;   // First FFN bias [intermediate_dim]
     float *ffn_fc2_weight; // Second FFN layer [hidden_dim, intermediate_dim]
     float *ffn_fc2_bias;   // Second FFN bias [hidden_dim]
+
+    // MLP weights (aliases for FFN weights)
+    float *mlp_fc_weight;   // Same as ffn_fc1_weight
+    float *mlp_fc_bias;     // Same as ffn_fc1_bias
+    float *mlp_proj_weight; // Same as ffn_fc2_weight
+    float *mlp_proj_bias;   // Same as ffn_fc2_bias
 };
 
 class GPT2Weights
 {
 public:
     GPT2Weights(ModelDimensions &dims,
-                const std::vector<std::pair<std::string, TensorInfo>> &tensor_infos);
+                const std::vector<std::pair<std::string, TensorInfo>> &tensor_infos,
+                const std::vector<uint8_t> &data);
     ~GPT2Weights();
 
     // Load weights from SafeTensors data
@@ -47,44 +54,44 @@ public:
     const LayerWeights &getLayerWeights(int layer) const { return layers[layer]; }
 
     // Layer weight getters
-    float* getAttentionQKVWeight(int layer) const { return layers[layer].attn_qkv_weight; }
-    float* getAttentionQKVBias(int layer) const { return layers[layer].attn_qkv_bias; }
-    float* getAttentionProjectionWeight(int layer) const { return layers[layer].attn_proj_weight; }
-    float* getAttentionProjectionBias(int layer) const { return layers[layer].attn_proj_bias; }
-    
-    float* getAttentionLayerNormWeight(int layer) const { return layers[layer].attn_ln_weight; }
-    float* getAttentionLayerNormBias(int layer) const { return layers[layer].attn_ln_bias; }
-    float* getFFNLayerNormWeight(int layer) const { return layers[layer].ffn_ln_weight; }
-    float* getFFNLayerNormBias(int layer) const { return layers[layer].ffn_ln_bias; }
-    
-    float* getFFNFC1Weight(int layer) const { return layers[layer].ffn_fc1_weight; }
-    float* getFFNFC1Bias(int layer) const { return layers[layer].ffn_fc1_bias; }
-    float* getFFNFC2Weight(int layer) const { return layers[layer].ffn_fc2_weight; }
-    float* getFFNFC2Bias(int layer) const { return layers[layer].ffn_fc2_bias; }
+    float *getAttentionQKVWeight(int layer) const { return layers[layer].attn_qkv_weight; }
+    float *getAttentionQKVBias(int layer) const { return layers[layer].attn_qkv_bias; }
+    float *getAttentionProjectionWeight(int layer) const { return layers[layer].attn_proj_weight; }
+    float *getAttentionProjectionBias(int layer) const { return layers[layer].attn_proj_bias; }
 
-    // Layer weight setters 
-    void setAttentionQKVWeight(int layer, float* weight) { layers[layer].attn_qkv_weight = weight; }
-    void setAttentionQKVBias(int layer, float* bias) { layers[layer].attn_qkv_bias = bias; }
-    void setAttentionProjectionWeight(int layer, float* weight) { layers[layer].attn_proj_weight = weight; }
-    void setAttentionProjectionBias(int layer, float* bias) { layers[layer].attn_proj_bias = bias; }
-    
-    void setAttentionLayerNormWeight(int layer, float* weight) { layers[layer].attn_ln_weight = weight; }
-    void setAttentionLayerNormBias(int layer, float* bias) { layers[layer].attn_ln_bias = bias; }
-    void setFFNLayerNormWeight(int layer, float* weight) { layers[layer].ffn_ln_weight = weight; }
-    void setFFNLayerNormBias(int layer, float* bias) { layers[layer].ffn_ln_bias = bias; }
-    
-    void setFFNFC1Weight(int layer, float* weight) { layers[layer].ffn_fc1_weight = weight; }
-    void setFFNFC1Bias(int layer, float* bias) { layers[layer].ffn_fc1_bias = bias; }
-    void setFFNFC2Weight(int layer, float* weight) { layers[layer].ffn_fc2_weight = weight; }
-    void setFFNFC2Bias(int layer, float* bias) { layers[layer].ffn_fc2_bias = bias; }
+    float *getAttentionLayerNormWeight(int layer) const { return layers[layer].attn_ln_weight; }
+    float *getAttentionLayerNormBias(int layer) const { return layers[layer].attn_ln_bias; }
+    float *getFFNLayerNormWeight(int layer) const { return layers[layer].ffn_ln_weight; }
+    float *getFFNLayerNormBias(int layer) const { return layers[layer].ffn_ln_bias; }
+
+    float *getFFNFC1Weight(int layer) const { return layers[layer].ffn_fc1_weight; }
+    float *getFFNFC1Bias(int layer) const { return layers[layer].ffn_fc1_bias; }
+    float *getFFNFC2Weight(int layer) const { return layers[layer].ffn_fc2_weight; }
+    float *getFFNFC2Bias(int layer) const { return layers[layer].ffn_fc2_bias; }
+
+    // Layer weight setters
+    void setAttentionQKVWeight(int layer, float *weight) { layers[layer].attn_qkv_weight = weight; }
+    void setAttentionQKVBias(int layer, float *bias) { layers[layer].attn_qkv_bias = bias; }
+    void setAttentionProjectionWeight(int layer, float *weight) { layers[layer].attn_proj_weight = weight; }
+    void setAttentionProjectionBias(int layer, float *bias) { layers[layer].attn_proj_bias = bias; }
+
+    void setAttentionLayerNormWeight(int layer, float *weight) { layers[layer].attn_ln_weight = weight; }
+    void setAttentionLayerNormBias(int layer, float *bias) { layers[layer].attn_ln_bias = bias; }
+    void setFFNLayerNormWeight(int layer, float *weight) { layers[layer].ffn_ln_weight = weight; }
+    void setFFNLayerNormBias(int layer, float *bias) { layers[layer].ffn_ln_bias = bias; }
+
+    void setFFNFC1Weight(int layer, float *weight) { layers[layer].ffn_fc1_weight = weight; }
+    void setFFNFC1Bias(int layer, float *bias) { layers[layer].ffn_fc1_bias = bias; }
+    void setFFNFC2Weight(int layer, float *weight) { layers[layer].ffn_fc2_weight = weight; }
+    void setFFNFC2Bias(int layer, float *bias) { layers[layer].ffn_fc2_bias = bias; }
 
     // Embedding setters
-    void setTokenEmbedding(float* embedding) { token_embedding = embedding; }
-    void setPositionEmbedding(float* embedding) { position_embedding = embedding; }
+    void setTokenEmbedding(float *embedding) { token_embedding = embedding; }
+    void setPositionEmbedding(float *embedding) { position_embedding = embedding; }
 
     // Final layer norm setters
-    void setFinalLayerNormWeight(float* weight) { final_ln_weight = weight; }
-    void setFinalLayerNormBias(float* bias) { final_ln_bias = bias; }
+    void setFinalLayerNormWeight(float *weight) { final_ln_weight = weight; }
+    void setFinalLayerNormBias(float *bias) { final_ln_bias = bias; }
 
     // Get number of layers
     int getNumLayers() const { return layers.size(); }
@@ -111,4 +118,6 @@ private:
     bool loadTensor(const std::string &name,
                     const TensorInfo &info,
                     const std::vector<uint8_t> &data);
+
+    const std::vector<std::pair<std::string, TensorInfo>> tensor_infos;
 };

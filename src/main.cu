@@ -221,9 +221,11 @@ int main(int argc, char *argv[])
         }
     }
 
+    debugPrint("Weights loaded successfully, loading encoder and decoder\n");
     // Initialize Encoder with weights
     Encoder encoder(config, weights);
 
+    debugPrint("Encoder loaded successfully, loading decoder\n");
     // Initialize Decoder with weights
     Decoder decoder(config, weights);
 

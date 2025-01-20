@@ -227,11 +227,11 @@ std::pair<size_t, Metadata> SafeTensors::read_metadata(const std::vector<uint8_t
     return {8 + header_length, Metadata(metadata, tensors)};
 }
 
-GPT2Weights* loadGPT2ModelWeights(const std::string &weights_file)
+GPT2Weights *loadGPT2ModelWeights(const std::string &weights_file)
 {
     ModelDimensions dims{0, 0, 0, 0, 0, 0, false};
-    GPT2Weights* weights = nullptr;
-    
+    GPT2Weights *weights = nullptr;
+
     try
     {
         // Read the file into a buffer
@@ -259,30 +259,13 @@ GPT2Weights* loadGPT2ModelWeights(const std::string &weights_file)
         auto tensor_infos = safe_tensors.tensors();
 
         // Create GPT2Weights object which will also populate dims
-        weights = new GPT2Weights(dims, tensor_infos);
-        
-        // Load the actual weights data
-        if (!weights->loadWeights(tensor_infos, safe_tensors.get_data()))
-        {
-            debugPrint("Failed to load some weights\n");
-            delete weights;
-            return nullptr;
-        }
-
-        debugPrint("Successfully loaded GPT-2 weights\n");
-        debugPrint("  num_layers: %d\n", dims.num_layers);
-        debugPrint("  hidden_dim: %d\n", dims.hidden_dim);
-        debugPrint("  num_heads: %d\n", dims.num_heads);
-        debugPrint("  intermediate_dim: %d\n", dims.intermediate_dim);
-        debugPrint("  vocab_size: %d\n", dims.vocab_size);
-        debugPrint("  embedding_dim: %d\n", dims.embedding_dim);
-
-        return weights;
+        return new GPT2Weights(dims, tensor_infos, safe_tensors.get_data());
     }
     catch (const std::exception &e)
     {
         debugPrint("Error loading weights: %s\n", e.what());
-        if (weights) {
+        if (weights)
+        {
             delete weights;
         }
         return nullptr;
