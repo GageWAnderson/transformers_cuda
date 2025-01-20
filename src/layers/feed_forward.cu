@@ -4,6 +4,9 @@
 #include <curand.h>
 #include <curand_kernel.h>
 
+#include "utils/utils.cuh"
+#include "utils/debug.cuh"
+
 // Activation function (ReLU)
 __global__ void relu_activation(float *data, int size)
 {
@@ -52,6 +55,21 @@ FeedForward::~FeedForward()
 
 void FeedForward::forward(float *output, const float *input, int seq_len, cudaStream_t stream)
 {
+    // Debug print input values
+    float h_input[5];
+    cudaMemcpy(h_input, input, 5 * sizeof(float), cudaMemcpyDeviceToHost);
+    debugPrint("FeedForward input (first 5): %f %f %f %f %f\n", 
+               h_input[0], h_input[1], h_input[2], h_input[3], h_input[4]);
+    
+    // Debug print weights
+    float h_W1[5], h_b1[5];
+    cudaMemcpy(h_W1, d_W1, 5 * sizeof(float), cudaMemcpyDeviceToHost);
+    cudaMemcpy(h_b1, d_b1, 5 * sizeof(float), cudaMemcpyDeviceToHost);
+    debugPrint("FeedForward W1 (first 5): %f %f %f %f %f\n",
+               h_W1[0], h_W1[1], h_W1[2], h_W1[3], h_W1[4]);
+    debugPrint("FeedForward b1 (first 5): %f %f %f %f %f\n",
+               h_b1[0], h_b1[1], h_b1[2], h_b1[3], h_b1[4]);
+
     // Implement the feed-forward network forward pass
 
     // Allocate intermediate memory
@@ -80,6 +98,12 @@ void FeedForward::forward(float *output, const float *input, int seq_len, cudaSt
                 &beta,
                 d_intermediate, intermediate_dim);
 
+    // After first linear layer
+    float h_intermediate[5];
+    cudaMemcpy(h_intermediate, d_intermediate, 5 * sizeof(float), cudaMemcpyDeviceToHost);
+    debugPrint("FeedForward after first linear (first 5): %f %f %f %f %f\n",
+               h_intermediate[0], h_intermediate[1], h_intermediate[2], h_intermediate[3], h_intermediate[4]);
+
     // Add bias b1
     int threads = 256;
     int blocks = (seq_len * intermediate_dim + threads - 1) / threads;
@@ -87,6 +111,11 @@ void FeedForward::forward(float *output, const float *input, int seq_len, cudaSt
 
     // Apply ReLU activation
     relu_activation<<<blocks, threads, 0, stream>>>(d_intermediate, seq_len * intermediate_dim);
+
+    // After ReLU
+    cudaMemcpy(h_intermediate, d_intermediate, 5 * sizeof(float), cudaMemcpyDeviceToHost);
+    debugPrint("FeedForward after ReLU (first 5): %f %f %f %f %f\n",
+               h_intermediate[0], h_intermediate[1], h_intermediate[2], h_intermediate[3], h_intermediate[4]);
 
     // Linear Layer 2: output = intermediate * W2 + b2
     // output: [seq_len, hidden_dim]
@@ -102,6 +131,12 @@ void FeedForward::forward(float *output, const float *input, int seq_len, cudaSt
     // Add bias b2
     blocks = (seq_len * hidden_dim + threads - 1) / threads;
     add_bias<<<blocks, threads, 0, stream>>>(output, d_b2, seq_len, hidden_dim);
+
+    // Debug final output
+    float h_output[5];
+    cudaMemcpy(h_output, output, 5 * sizeof(float), cudaMemcpyDeviceToHost);
+    debugPrint("FeedForward output (first 5): %f %f %f %f %f\n",
+               h_output[0], h_output[1], h_output[2], h_output[3], h_output[4]);
 
     // Cleanup
     cudaFree(d_intermediate);

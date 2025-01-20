@@ -30,35 +30,52 @@ Decoder::Decoder(const Config &config, const GPT2Weights* weights)
     // Initialize components for each layer with weights
     for (int i = 0; i < num_layers; ++i)
     {
-        // Initialize self attention with weights
-        self_attention_layers[i] = new MultiHeadAttention(hidden_dim, num_heads);
-        self_attention_layers[i]->setQueryWeight(weights->getAttentionQKVWeight(i));
-        self_attention_layers[i]->setQueryBias(weights->getAttentionQKVBias(i));
-        self_attention_layers[i]->setOutputProjWeight(weights->getAttentionProjectionWeight(i));
-        self_attention_layers[i]->setOutputProjBias(weights->getAttentionProjectionBias(i));
+        // Get layer weights
+        const LayerWeights& layer = weights->getLayerWeights(i);
+        
+        // Initialize self attention with direct weight references
+        self_attention_layers[i] = new MultiHeadAttention(
+            hidden_dim, 
+            num_heads,
+            layer.attn_qkv_weight,     // Q weight
+            layer.attn_qkv_weight + hidden_dim * hidden_dim,  // K weight offset
+            layer.attn_qkv_weight + 2 * hidden_dim * hidden_dim,  // V weight offset
+            layer.attn_proj_weight,    // Output projection weight
+            layer.attn_qkv_bias,       // Q bias
+            layer.attn_qkv_bias + hidden_dim,  // K bias offset
+            layer.attn_qkv_bias + 2 * hidden_dim,  // V bias offset
+            layer.attn_proj_bias       // Output projection bias
+        );
 
-        // Initialize encoder-decoder attention with weights
-        encoder_attention_layers[i] = new MultiHeadAttention(hidden_dim, num_heads);
-        encoder_attention_layers[i]->setQueryWeight(weights->getAttentionQKVWeight(i));
-        encoder_attention_layers[i]->setQueryBias(weights->getAttentionQKVBias(i));
-        encoder_attention_layers[i]->setOutputProjWeight(weights->getAttentionProjectionWeight(i));
-        encoder_attention_layers[i]->setOutputProjBias(weights->getAttentionProjectionBias(i));
+        // Initialize encoder-decoder attention similarly
+        encoder_attention_layers[i] = new MultiHeadAttention(
+            hidden_dim,
+            num_heads,
+            layer.attn_qkv_weight,
+            layer.attn_qkv_weight + hidden_dim * hidden_dim,
+            layer.attn_qkv_weight + 2 * hidden_dim * hidden_dim,
+            layer.attn_proj_weight,
+            layer.attn_qkv_bias,
+            layer.attn_qkv_bias + hidden_dim,
+            layer.attn_qkv_bias + 2 * hidden_dim,
+            layer.attn_proj_bias
+        );
 
-        // Initialize feed forward with weights
+        // Initialize feed forward with direct weight references
         feed_forward_layers[i] = new FeedForward(hidden_dim, intermediate_dim);
-        feed_forward_layers[i]->setWeight1(weights->getFFNFC1Weight(i));
-        feed_forward_layers[i]->setBias1(weights->getFFNFC1Bias(i));
-        feed_forward_layers[i]->setWeight2(weights->getFFNFC2Weight(i));
-        feed_forward_layers[i]->setBias2(weights->getFFNFC2Bias(i));
+        feed_forward_layers[i]->setWeight1(layer.ffn_fc1_weight);
+        feed_forward_layers[i]->setBias1(layer.ffn_fc1_bias);
+        feed_forward_layers[i]->setWeight2(layer.ffn_fc2_weight);
+        feed_forward_layers[i]->setBias2(layer.ffn_fc2_bias);
 
-        // Initialize layer norms with weights
+        // Initialize layer norms with direct weight references
         layer_norm1_layers[i] = new LayerNorm(hidden_dim);
-        layer_norm1_layers[i]->setGamma(weights->getFFNLayerNormWeight(i));
-        layer_norm1_layers[i]->setBeta(weights->getFFNLayerNormBias(i));
+        layer_norm1_layers[i]->setGamma(layer.attn_ln_weight);
+        layer_norm1_layers[i]->setBeta(layer.attn_ln_bias);
 
         layer_norm2_layers[i] = new LayerNorm(hidden_dim);
-        layer_norm2_layers[i]->setGamma(weights->getFFNLayerNormWeight(i));
-        layer_norm2_layers[i]->setBeta(weights->getFFNLayerNormBias(i));
+        layer_norm2_layers[i]->setGamma(layer.ffn_ln_weight);
+        layer_norm2_layers[i]->setBeta(layer.ffn_ln_bias);
     }
 }
 

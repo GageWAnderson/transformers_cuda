@@ -7,6 +7,9 @@
 #include <cublas_v2.h>
 #include <math.h>
 
+#include "utils/utils.cuh"
+#include "utils/debug.cuh"
+
 void computeAttentionScores(const float *Q, const float *K, float *attention_scores,
                             int batch_size, int num_heads, int seq_len, int head_dim,
                             float scale, cublasHandle_t cublas_handle, cudaStream_t stream)
@@ -189,7 +192,7 @@ void computeAttentionOutput(const float *attention_scores, const float *V, float
     }
 }
 
-// New constructor: accepts pre-loaded weights
+// Update constructor to take references instead of copying
 MultiHeadAttention::MultiHeadAttention(int hidden_dim, int num_heads,
                                      float* W_q_ptr, float* W_k_ptr,
                                      float* W_v_ptr, float* W_o_ptr,
@@ -200,13 +203,13 @@ MultiHeadAttention::MultiHeadAttention(int hidden_dim, int num_heads,
     this->num_heads = num_heads;
     this->head_dim = hidden_dim / num_heads;
 
-    // Initialize weights
+    // Store references to weights instead of copying
     this->W_q = W_q_ptr;
     this->W_k = W_k_ptr;
     this->W_v = W_v_ptr;
     this->W_o = W_o_ptr;
 
-    // Initialize biases
+    // Store references to biases
     this->b_q = b_q_ptr;
     this->b_k = b_k_ptr;
     this->b_v = b_v_ptr;
@@ -214,17 +217,40 @@ MultiHeadAttention::MultiHeadAttention(int hidden_dim, int num_heads,
 
     // Create cuBLAS handle
     cublasCreate(&cublas_handle);
+
+    // Log weights and biases
+    float h_Wq[5], h_Wk[5], h_Wv[5], h_Wo[5];
+    cudaMemcpy(h_Wq, W_q, 5 * sizeof(float), cudaMemcpyDeviceToHost);
+    cudaMemcpy(h_Wk, W_k, 5 * sizeof(float), cudaMemcpyDeviceToHost);
+    cudaMemcpy(h_Wv, W_v, 5 * sizeof(float), cudaMemcpyDeviceToHost);
+    cudaMemcpy(h_Wo, W_o, 5 * sizeof(float), cudaMemcpyDeviceToHost);
+    debugPrint("MultiHeadAttention W_q (first 5): %f %f %f %f %f\n",
+               h_Wq[0], h_Wq[1], h_Wq[2], h_Wq[3], h_Wq[4]);
+    debugPrint("MultiHeadAttention W_k (first 5): %f %f %f %f %f\n",
+               h_Wk[0], h_Wk[1], h_Wk[2], h_Wk[3], h_Wk[4]);
+    debugPrint("MultiHeadAttention W_v (first 5): %f %f %f %f %f\n",
+               h_Wv[0], h_Wv[1], h_Wv[2], h_Wv[3], h_Wv[4]);
+    debugPrint("MultiHeadAttention W_o (first 5): %f %f %f %f %f\n",
+               h_Wo[0], h_Wo[1], h_Wo[2], h_Wo[3], h_Wo[4]);
+
+    float h_bq[5], h_bk[5], h_bv[5], h_bo[5];
+    cudaMemcpy(h_bq, b_q, 5 * sizeof(float), cudaMemcpyDeviceToHost);
+    cudaMemcpy(h_bk, b_k, 5 * sizeof(float), cudaMemcpyDeviceToHost);
+    cudaMemcpy(h_bv, b_v, 5 * sizeof(float), cudaMemcpyDeviceToHost);
+    cudaMemcpy(h_bo, b_o, 5 * sizeof(float), cudaMemcpyDeviceToHost);
+    debugPrint("MultiHeadAttention b_q (first 5): %f %f %f %f %f\n",
+               h_bq[0], h_bq[1], h_bq[2], h_bq[3], h_bq[4]);
+    debugPrint("MultiHeadAttention b_k (first 5): %f %f %f %f %f\n",
+               h_bk[0], h_bk[1], h_bk[2], h_bk[3], h_bk[4]);
+    debugPrint("MultiHeadAttention b_v (first 5): %f %f %f %f %f\n",
+               h_bv[0], h_bv[1], h_bv[2], h_bv[3], h_bv[4]);
+    debugPrint("MultiHeadAttention b_o (first 5): %f %f %f %f %f\n",
+               h_bo[0], h_bo[1], h_bo[2], h_bo[3], h_bo[4]);
 }
 
 MultiHeadAttention::~MultiHeadAttention()
 {
-    // Free weights and biases
-    cudaFree(W_q);
-    cudaFree(W_k);
-    cudaFree(W_v);
-    cudaFree(W_o);
-
-    // Destroy cuBLAS handle
+    // Only destroy cuBLAS handle since we don't own the weights anymore
     cublasDestroy(cublas_handle);
 }
 
@@ -249,6 +275,24 @@ void MultiHeadAttention::forward(float *output,
                                  cudaStream_t stream,
                                  bool mask)
 {
+    // Debug print inputs
+    float h_query[5], h_key[5];
+    cudaMemcpy(h_query, query_input, 5 * sizeof(float), cudaMemcpyDeviceToHost);
+    cudaMemcpy(h_key, key_value_input, 5 * sizeof(float), cudaMemcpyDeviceToHost);
+    debugPrint("MultiHeadAttention query input (first 5): %f %f %f %f %f\n",
+               h_query[0], h_query[1], h_query[2], h_query[3], h_query[4]);
+    debugPrint("MultiHeadAttention key input (first 5): %f %f %f %f %f\n",
+               h_key[0], h_key[1], h_key[2], h_key[3], h_key[4]);
+
+    // Debug print weights
+    float h_Wq[5], h_bq[5];
+    cudaMemcpy(h_Wq, W_q, 5 * sizeof(float), cudaMemcpyDeviceToHost);
+    cudaMemcpy(h_bq, b_q, 5 * sizeof(float), cudaMemcpyDeviceToHost);
+    debugPrint("MultiHeadAttention Wq (first 5): %f %f %f %f %f\n",
+               h_Wq[0], h_Wq[1], h_Wq[2], h_Wq[3], h_Wq[4]);
+    debugPrint("MultiHeadAttention bq (first 5): %f %f %f %f %f\n",
+               h_bq[0], h_bq[1], h_bq[2], h_bq[3], h_bq[4]);
+
     // Set the cuBLAS stream
     cublasSetStream(cublas_handle, stream);
 
@@ -276,17 +320,17 @@ void MultiHeadAttention::forward(float *output,
         cublas_handle,
         CUBLAS_OP_N,
         CUBLAS_OP_N,
-        embed_dim,
-        batch_size * seq_len,
-        embed_dim,
+        embed_dim,                  // m: rows of output
+        batch_size * seq_len,       // n: cols of output 
+        embed_dim,                  // k: inner dimension
         &alpha,
-        W_q,
-        embed_dim,
-        query_input,
-        embed_dim,
+        W_q,                        // [embed_dim x embed_dim]
+        embed_dim,                  // leading dimension of W_q
+        query_input,               // [embed_dim x (batch_size * seq_len)]
+        embed_dim,                  // leading dimension of query_input
         &beta,
-        Q,
-        embed_dim);
+        Q,                         // [embed_dim x (batch_size * seq_len)]
+        embed_dim);                // leading dimension of Q
 
     // Compute K = key_value_input * W_k
     cublasSgemm(
@@ -337,6 +381,18 @@ void MultiHeadAttention::forward(float *output,
     // For simplicity, assuming functions to handle this
     computeAttentionScores(Q, K, attention_scores, batch_size, num_heads, seq_len, head_dim, scale, cublas_handle, stream);
 
+    // Add error checking after matrix multiplications
+    float h_check[5];
+    cudaMemcpy(h_check, Q, 5 * sizeof(float), cudaMemcpyDeviceToHost);
+    debugPrint("Q after projection (first 5): %f %f %f %f %f\n",
+               h_check[0], h_check[1], h_check[2], h_check[3], h_check[4]);
+
+    // After computing attention scores
+    float h_scores[5];
+    cudaMemcpy(h_scores, attention_scores, 5 * sizeof(float), cudaMemcpyDeviceToHost);
+    debugPrint("MultiHeadAttention scores (first 5): %f %f %f %f %f\n",
+               h_scores[0], h_scores[1], h_scores[2], h_scores[3], h_scores[4]);
+
     // Apply mask if required
     if (mask)
     {
@@ -346,12 +402,23 @@ void MultiHeadAttention::forward(float *output,
     // Apply softmax to attention scores
     applySoftmaxToAttentionScores(attention_scores, batch_size, num_heads, seq_len, cudnn_handle, stream);
 
+    // After softmax
+    cudaMemcpy(h_scores, attention_scores, 5 * sizeof(float), cudaMemcpyDeviceToHost);
+    debugPrint("MultiHeadAttention after softmax (first 5): %f %f %f %f %f\n",
+               h_scores[0], h_scores[1], h_scores[2], h_scores[3], h_scores[4]);
+
     // Compute attention output
     float *attention_output;
     cudaMalloc((void **)&attention_output, size);
 
     // Implement batched matrix multiplication for attention output
     computeAttentionOutput(attention_scores, V, attention_output, batch_size, num_heads, seq_len, head_dim, cublas_handle, stream);
+
+    // Debug final output
+    float h_output[5];
+    cudaMemcpy(h_output, output, 5 * sizeof(float), cudaMemcpyDeviceToHost);
+    debugPrint("MultiHeadAttention output (first 5): %f %f %f %f %f\n",
+               h_output[0], h_output[1], h_output[2], h_output[3], h_output[4]);
 
     // Concatenate heads and project the output
     // For simplicity, we skip the concatenation step and assume functions handle the reshaping
