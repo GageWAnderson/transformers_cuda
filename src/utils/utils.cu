@@ -1,5 +1,8 @@
 #include <cuda_runtime.h>
 
+#include "utils/utils.cuh"
+#include "utils/debug.cuh"
+
 // Kernel for element-wise addition
 __global__ void add_tensors_kernel(const float* a, const float* b, float* c, int size) {
     int idx = blockIdx.x * blockDim.x + threadIdx.x;
@@ -13,4 +16,6 @@ void add_tensors(const float* a, const float* b, float* c, int size, cudaStream_
     int threads = 256;
     int blocks = (size + threads - 1) / threads;
     add_tensors_kernel<<<blocks, threads, 0, stream>>>(a, b, c, size);
+    CUDA_CHECK(cudaGetLastError());
+    CUDA_CHECK(cudaStreamSynchronize(stream));
 }

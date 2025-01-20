@@ -29,9 +29,18 @@ public:
     Decoder(const Config &config, const GPT2Weights* weights);
     ~Decoder();
 
+    /**
+     * @brief Forward pass through the decoder
+     * @param output Output tensor
+     * @param input Input tensor
+     * @param encoder_output Optional encoder output tensor (can be null for decoder-only models)
+     * @param batch_size Batch size
+     * @param seq_len Sequence length
+     * @param stream CUDA stream
+     */
     void forward(float *output,
                 const float *input,
-                const float *encoder_output,
+                const float *encoder_output,  // Optional for decoder-only models
                 int batch_size,
                 int seq_len,
                 cudaStream_t stream);

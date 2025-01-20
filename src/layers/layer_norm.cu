@@ -1,5 +1,6 @@
 #include "layers/layer_norm.cuh"
 #include "utils/utils.cuh"
+#include "utils/debug.cuh"
 #include <cublas_v2.h>
 #include <cuda_runtime.h>
 #include <cstdlib>
@@ -8,9 +9,16 @@
 
 LayerNorm::LayerNorm(int hidden_dim) : hidden_dim(hidden_dim)
 {
+    // Verify we have a valid CUDA device
+    int device_count;
+    CUDA_CHECK(cudaGetDeviceCount(&device_count));
+    if (device_count == 0) {
+        throw std::runtime_error("No CUDA devices available");
+    }
+
     // Allocate and initialize gamma and beta (scale and shift parameters)
-    cudaMalloc(&gamma, hidden_dim * sizeof(float));
-    cudaMalloc(&beta, hidden_dim * sizeof(float));
+    CUDA_CHECK(cudaMalloc(&gamma, hidden_dim * sizeof(float)));
+    CUDA_CHECK(cudaMalloc(&beta, hidden_dim * sizeof(float)));
 
     // Initialize gamma to 1 and beta to 0
     float *h_gamma = (float *)malloc(hidden_dim * sizeof(float));
@@ -20,38 +28,29 @@ LayerNorm::LayerNorm(int hidden_dim) : hidden_dim(hidden_dim)
         h_gamma[i] = 1.0f;
         h_beta[i] = 0.0f;
     }
-    cudaMemcpy(gamma, h_gamma, hidden_dim * sizeof(float), cudaMemcpyHostToDevice);
-    cudaMemcpy(beta, h_beta, hidden_dim * sizeof(float), cudaMemcpyHostToDevice);
+    CUDA_CHECK(cudaMemcpy(gamma, h_gamma, hidden_dim * sizeof(float), cudaMemcpyHostToDevice));
+    CUDA_CHECK(cudaMemcpy(beta, h_beta, hidden_dim * sizeof(float), cudaMemcpyHostToDevice));
 
     free(h_gamma);
     free(h_beta);
 
     // Initialize cuBLAS
     cublasCreate(&cublas_handle);
-    temp_storage = nullptr;
-    temp_storage_bytes = 0;
 }
 
-LayerNorm::~LayerNorm()
+LayerNorm::~LayerNorm() noexcept
 {
     // Free resources
-    cudaFree(gamma);
-    cudaFree(beta);
-    if (temp_storage) cudaFree(temp_storage);
+    cudaError_t err;
+    err = cudaFree(gamma);
+    if (err != cudaSuccess) {
+        fprintf(stderr, "CUDA error: %s\n", cudaGetErrorString(err));
+    }
+    err = cudaFree(beta);
+    if (err != cudaSuccess) {
+        fprintf(stderr, "CUDA error: %s\n", cudaGetErrorString(err));
+    }
     cublasDestroy(cublas_handle);
-}
-
-void LayerNorm::initialize_temp_storage(int max_seq_len) {
-    if (temp_storage) cudaFree(temp_storage);
-    
-    // Calculate required temporary storage
-    size_t temp_bytes = 0;
-    cub::DeviceSegmentedReduce::Sum(nullptr, temp_bytes, (float*)nullptr,
-                                   (float*)nullptr, max_seq_len, 
-                                   (int*)nullptr, (int*)nullptr);
-    
-    cudaMalloc(&temp_storage, temp_bytes);
-    temp_storage_bytes = temp_bytes;
 }
 
 __global__ void fused_layer_norm_kernel(
@@ -59,7 +58,6 @@ __global__ void fused_layer_norm_kernel(
     float* __restrict__ output,
     const float* __restrict__ gamma,
     const float* __restrict__ beta,
-    const float* __restrict__ mean_input,
     int hidden_dim,
     int seq_len,
     float epsilon)
@@ -80,16 +78,7 @@ __global__ void fused_layer_norm_kernel(
         sum_sq += val * val;
     }
     
-    // TODO: Understand warp-level programming to get more efficiencies
-    // Warp-level reduction
-    // sum = warpReduceSum(sum);
-    // sum_sq = warpReduceSum(sum_sq);
-    
     // Block-level reduction
-    // if (tid < warpSize) {
-    //     shared_data[tid] = sum;
-    //     shared_data[tid + warpSize] = sum_sq;
-    // }
     __syncthreads();
     
     if (tid == 0) {
@@ -112,21 +101,34 @@ __global__ void fused_layer_norm_kernel(
 }
 
 void LayerNorm::forward(float* output, const float* input, int seq_len, cudaStream_t stream) {
-    if (!temp_storage || seq_len > temp_storage_bytes) {
-        initialize_temp_storage(seq_len);
-    }
-
-    const int BLOCK_SIZE = 256;
-    const int shared_mem_size = 2 * sizeof(float) * 32; // For mean and variance
+    // Check input parameters
+    CUDA_CHECK(cudaPeekAtLastError()); // Check for any previous errors
     
-    fused_layer_norm_kernel<<<seq_len, BLOCK_SIZE, shared_mem_size, stream>>>(
-        input, output, gamma, beta, nullptr, hidden_dim, seq_len, 1e-5f);
+    const int BLOCK_SIZE = 256;
+    const int shared_mem_size = 2 * sizeof(float); // For mean and variance
+    
+    // Validate pointers and parameters
+    if (output == nullptr || input == nullptr || gamma == nullptr || beta == nullptr) {
+        throw std::runtime_error("Null pointer passed to layer norm forward");
+    }
+    
+    if (seq_len <= 0 || hidden_dim <= 0) {
+        throw std::runtime_error("Invalid dimensions in layer norm forward");
+    }
+    
+    // Calculate total elements to process (seq_len is actually batch_size * seq_len)
+    int total_sequences = seq_len;
+    
+    fused_layer_norm_kernel<<<total_sequences, BLOCK_SIZE, shared_mem_size, stream>>>(
+        input, output, gamma, beta, hidden_dim, total_sequences, 1e-5f);
+    
+    CUDA_CHECK(cudaPeekAtLastError()); // Check for kernel launch errors
 }
 
 void LayerNorm::setGamma(float* gamma_weights) {
-    cudaMemcpy(gamma, gamma_weights, hidden_dim * sizeof(float), cudaMemcpyDeviceToDevice);
+    CUDA_CHECK(cudaMemcpy(gamma, gamma_weights, hidden_dim * sizeof(float), cudaMemcpyDeviceToDevice));
 }
 
 void LayerNorm::setBeta(float* beta_weights) {
-    cudaMemcpy(beta, beta_weights, hidden_dim * sizeof(float), cudaMemcpyDeviceToDevice);
+    CUDA_CHECK(cudaMemcpy(beta, beta_weights, hidden_dim * sizeof(float), cudaMemcpyDeviceToDevice));
 }

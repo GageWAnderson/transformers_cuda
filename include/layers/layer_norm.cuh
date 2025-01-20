@@ -12,7 +12,6 @@ public:
     ~LayerNorm();
 
     void forward(float *output, const float *input, int seq_len, cudaStream_t stream);
-    void initialize_temp_storage(int max_seq_len);
     void setGamma(float* gamma_weights);
     void setBeta(float* beta_weights);
 
@@ -23,8 +22,6 @@ private:
     cudnnTensorDescriptor_t gamma_beta_desc;
     float *gamma;
     float *beta;
-    float *temp_storage; // Add this for temporary computations
-    size_t temp_storage_bytes;
     cublasHandle_t cublas_handle;
 };
 

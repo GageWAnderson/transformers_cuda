@@ -39,15 +39,6 @@
         if (error != cudaSuccess)                                                                             \
         {                                                                                                     \
             debugPrint("CUDA error %d: %s at %s:%d\n", error, cudaGetErrorString(error), __FILE__, __LINE__); \
-            void *array[10];                                                                                  \
-            size_t size = backtrace(array, 10);                                                               \
-            char **messages = backtrace_symbols(array, size);                                                 \
-            debugPrint("Stack trace:\n");                                                                     \
-            for (size_t i = 0; i < size; i++)                                                                 \
-            {                                                                                                 \
-                debugPrint("%s\n", messages[i]);                                                              \
-            }                                                                                                 \
-            free(messages);                                                                                   \
             throw std::runtime_error("CUDA error");                                                           \
         }                                                                                                     \
     } while (0)

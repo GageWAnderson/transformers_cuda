@@ -225,9 +225,11 @@ int main(int argc, char *argv[])
     Decoder decoder(config, weights);
 
     // Create and initialize the FinalLinearLayer with weights
+    debugPrint("Initializing FinalLinearLayer\n");
     FinalLinearLayer final_linear_layer(config, cublas, cudnn, weights);
 
     // Allocate memory for decoder input and output
+    debugPrint("Allocating memory for decoder input and output\n");
     float *d_decoder_input = nullptr;
     float *d_decoder_output = nullptr;
     size_t decoder_input_size = config.batch_size * config.hidden_dim * sizeof(float);
@@ -252,11 +254,14 @@ int main(int argc, char *argv[])
     while (generation_step < config.max_generation_length)
     {
         // Get the embedding for the current token
+        debugPrint("Getting token embedding for token %d\n", current_token_id);
         getTokenEmbedding(current_token_id, d_token_embeddings, d_current_token_embedding, config);
 
         // Prepare decoder input
+        debugPrint("Copying token embedding to decoder input\n");
         cudaMemcpy(d_decoder_input, d_current_token_embedding, decoder_input_size, cudaMemcpyDeviceToDevice);
 
+        debugPrint("Running decoder forward pass\n");
         decoder.forward(d_decoder_output,
                         d_decoder_input,
                         nullptr,
@@ -265,8 +270,9 @@ int main(int argc, char *argv[])
                         stream);
 
         // Print intermediate decoder output
+        debugPrint("Copying decoder output to host\n");
         std::vector<float> h_decoder_output(config.hidden_dim);
-        cudaMemcpy(h_decoder_output.data(), d_decoder_output, config.hidden_dim * sizeof(float), cudaMemcpyDeviceToHost);
+        CUDA_CHECK(cudaMemcpy(h_decoder_output.data(), d_decoder_output, config.hidden_dim * sizeof(float), cudaMemcpyDeviceToHost));
         debugPrint("Decoder output (first 10 elements): ");
         for (int i = 0; i < 10 && i < h_decoder_output.size(); ++i)
         {
@@ -275,14 +281,17 @@ int main(int argc, char *argv[])
         debugPrint("\n");
 
         // Allocate memory for d_logits outside the forward function
+        debugPrint("Allocating memory for d_logits\n");
         float *d_logits = nullptr;
         size_t logits_size = config.batch_size * seq_len * config.vocab_size * sizeof(float);
         cudaMalloc(&d_logits, logits_size);
 
         // Updated function call matches the new signature
+        debugPrint("Running final linear layer forward pass\n");
         final_linear_layer.forward(d_decoder_output, d_logits, 1); // seq_len = 1 during decoding
 
         // Copy logits to host to select the next token
+        debugPrint("Copying logits to host\n");
         std::vector<float> h_logits(config.batch_size * seq_len * config.vocab_size);
         cudaMemcpy(h_logits.data(), d_logits, logits_size, cudaMemcpyDeviceToHost);
 
