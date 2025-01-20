@@ -1,16 +1,9 @@
 #include "gpt2_weights.cuh"
 #include "utils/debug.cuh"
 #include "utils/load_weights.cuh"
+#include "utils/utils.cuh"
 #include <cstring>
 #include <exception>
-
-#define CUDA_CHECK(call) do { \
-    cudaError_t error = call; \
-    if (error != cudaSuccess) { \
-        debugPrint("CUDA error %d: %s at %s:%d\n", error, cudaGetErrorString(error), __FILE__, __LINE__); \
-        throw std::runtime_error("CUDA error"); \
-    } \
-} while(0)
 
 int countLayers(const std::vector<std::pair<std::string, TensorInfo>> &tensor_infos)
 {
@@ -44,13 +37,29 @@ int countLayers(const std::vector<std::pair<std::string, TensorInfo>> &tensor_in
 GPT2Weights::GPT2Weights(ModelDimensions &dims,
                          const std::vector<std::pair<std::string, TensorInfo>> &tensor_infos,
                          const std::vector<uint8_t> &data)
-    : tensor_infos(tensor_infos) // Store tensor_infos as member variable
+    : tensor_infos(tensor_infos), // Store tensor_infos as member variable
+      dims(dims)                  // Store dims as member variable to prevent reference issues
 {
+    // Add CUDA device initialization check
+    int deviceCount;
+    CUDA_CHECK(cudaGetDeviceCount(&deviceCount));
+    if (deviceCount == 0) {
+        throw std::runtime_error("No CUDA devices available");
+    }
+    
+    // Select first available device
+    CUDA_CHECK(cudaSetDevice(0));
+    
+    cudaDeviceProp prop;
+    CUDA_CHECK(cudaGetDeviceProperties(&prop, 0));
+    debugPrint("Using CUDA Device %s with %zu MB of memory\n", 
+               prop.name, 
+               prop.totalGlobalMem / (1024*1024));
+    
     try
     {
         // Count layers before allocation
-        dims.num_layers = countLayers(tensor_infos);
-        debugPrint("Set dims.num_layers to %d\n", dims.num_layers);
+        this->dims.num_layers = countLayers(tensor_infos);
 
         // Set other dimensions based on tensor shapes
         int max_head_number = -1;
@@ -92,7 +101,7 @@ GPT2Weights::GPT2Weights(ModelDimensions &dims,
         debugPrint("  Hidden dimension: %d\n", dims.hidden_dim);
         debugPrint("  Number of heads: %d\n", dims.num_heads);
         debugPrint("  Intermediate dimension: %d\n", dims.intermediate_dim);
-
+        debugPrint("  Number of layers: %d\n", this->dims.num_layers);
         dims.valid = dims.vocab_size > 0 && dims.hidden_dim > 0 &&
                      dims.num_heads > 0 && dims.intermediate_dim > 0;
 
@@ -100,7 +109,7 @@ GPT2Weights::GPT2Weights(ModelDimensions &dims,
         {
             debugPrint("Warning: Failed to determine all model dimensions from weights\n");
         }
-
+        debugPrint("Allocating weights for %d layers\n", this->dims.num_layers);
         allocateWeights();
 
         if (!loadWeights(tensor_infos, data))
@@ -125,6 +134,7 @@ void GPT2Weights::allocateWeights()
 {
     try
     {
+        debugPrint("Allocating weights for %d layers\n", this->dims.num_layers);
         // Helper lambda to find tensor info by name
         auto findTensorInfo = [](const std::string &name,
                                  const std::vector<std::pair<std::string, TensorInfo>> &tensor_infos)
@@ -144,16 +154,7 @@ void GPT2Weights::allocateWeights()
         std::vector<void *> allocated_ptrs;
         auto safeCudaMalloc = [&allocated_ptrs](void **ptr, size_t size)
         {
-            cudaError_t error = cudaMalloc(ptr, size);
-            if (error != cudaSuccess)
-            {
-                // Free all previously allocated memory
-                for (void *p : allocated_ptrs)
-                {
-                    cudaFree(p);
-                }
-                throw std::runtime_error("CUDA malloc failed: " + std::string(cudaGetErrorString(error)));
-            }
+            CUDA_CHECK(cudaMalloc(ptr, size));
             allocated_ptrs.push_back(*ptr);
         };
 
@@ -166,6 +167,9 @@ void GPT2Weights::allocateWeights()
         size_t wte_size = wte_info->shape[0] * wte_info->shape[1] * sizeof(float);
         debugPrint("Allocating token embedding: %zu bytes\n", wte_size);
         safeCudaMalloc((void **)&token_embedding, wte_size);
+        if (token_embedding == nullptr) {
+            throw std::runtime_error("Failed to allocate token embedding");
+        }
 
         const TensorInfo *wpe_info = findTensorInfo("wpe.weight", tensor_infos);
         if (!wpe_info)
@@ -188,13 +192,15 @@ void GPT2Weights::allocateWeights()
         safeCudaMalloc((void **)&final_ln_bias, ln_size);
 
         // Allocate layer weights
-        try {
-            layers.resize(12);
-        } catch (const std::bad_alloc& e) {
+        try
+        {
+            layers.resize(this->dims.num_layers);
+        }
+        catch (const std::bad_alloc &e)
+        {
             throw std::runtime_error("Failed to allocate memory for layer weights: " + std::string(e.what()));
         }
-        debugPrint("Allocating weights for %d layers\n", 12);
-        for (int i = 0; i < 12; i++)
+        for (int i = 0; i < this->dims.num_layers; i++)
         {
             LayerWeights &layer = layers[i];
             std::string layer_prefix = "h." + std::to_string(i) + ".";
@@ -270,28 +276,28 @@ void GPT2Weights::allocateWeights()
 void GPT2Weights::freeWeights()
 {
     // Free embeddings
-    cudaFree(token_embedding);
-    cudaFree(position_embedding);
+    CUDA_CHECK(cudaFree(token_embedding));
+    CUDA_CHECK(cudaFree(position_embedding));
 
     // Free final layer norm
-    cudaFree(final_ln_weight);
-    cudaFree(final_ln_bias);
+    CUDA_CHECK(cudaFree(final_ln_weight));
+    CUDA_CHECK(cudaFree(final_ln_bias));
 
     // Free layer weights
     for (auto &layer : layers)
     {
-        cudaFree(layer.attn_qkv_weight);
-        cudaFree(layer.attn_qkv_bias);
-        cudaFree(layer.attn_proj_weight);
-        cudaFree(layer.attn_proj_bias);
-        cudaFree(layer.attn_ln_weight);
-        cudaFree(layer.attn_ln_bias);
-        cudaFree(layer.ffn_ln_weight);
-        cudaFree(layer.ffn_ln_bias);
-        cudaFree(layer.ffn_fc1_weight);
-        cudaFree(layer.ffn_fc1_bias);
-        cudaFree(layer.ffn_fc2_weight);
-        cudaFree(layer.ffn_fc2_bias);
+        CUDA_CHECK(cudaFree(layer.attn_qkv_weight));
+        CUDA_CHECK(cudaFree(layer.attn_qkv_bias));
+        CUDA_CHECK(cudaFree(layer.attn_proj_weight));
+        CUDA_CHECK(cudaFree(layer.attn_proj_bias));
+        CUDA_CHECK(cudaFree(layer.attn_ln_weight));
+        CUDA_CHECK(cudaFree(layer.attn_ln_bias));
+        CUDA_CHECK(cudaFree(layer.ffn_ln_weight));
+        CUDA_CHECK(cudaFree(layer.ffn_ln_bias));
+        CUDA_CHECK(cudaFree(layer.ffn_fc1_weight));
+        CUDA_CHECK(cudaFree(layer.ffn_fc1_bias));
+        CUDA_CHECK(cudaFree(layer.ffn_fc2_weight));
+        CUDA_CHECK(cudaFree(layer.ffn_fc2_bias));
     }
 }
 
@@ -300,11 +306,11 @@ bool GPT2Weights::copyWeightToDevice(const std::vector<uint8_t> &data,
                                      size_t size,
                                      float *dest)
 {
-    cudaError_t error = cudaMemcpy(dest,
-                                   data.data() + offset,
-                                   size,
-                                   cudaMemcpyHostToDevice);
-    return error == cudaSuccess;
+    CUDA_CHECK(cudaMemcpy(dest,
+                          data.data() + offset,
+                          size,
+                          cudaMemcpyHostToDevice));
+    return true;
 }
 
 bool GPT2Weights::loadTensor(const std::string &name,
@@ -361,7 +367,6 @@ bool GPT2Weights::loadTensor(const std::string &name,
 
     // Handle layer-specific weights
     int layer_num = getLayerNum(name);
-    debugPrint("Loading tensor: %s, layer number: %d, dims.num_layers: %d\n", name.c_str(), layer_num, dims.num_layers);
     if (layer_num >= 0 && layer_num < dims.num_layers)
     {
         LayerWeights &layer = layers[layer_num];

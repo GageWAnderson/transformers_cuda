@@ -11,7 +11,6 @@
 #include "embeddings/positional_encoding.cuh"
 #include "tokenizer/vocab.cuh"
 #include "tokenizer/tokenizer.cuh"
-#include "encoder/encoder.cuh"
 #include "decoder/decoder.cuh"
 #include "cublas_v2.h"
 #include "curand.h"
@@ -221,46 +220,12 @@ int main(int argc, char *argv[])
         }
     }
 
-    debugPrint("Weights loaded successfully, loading encoder and decoder\n");
-    // Initialize Encoder with weights
-    Encoder encoder(config, weights);
-
-    debugPrint("Encoder loaded successfully, loading decoder\n");
+    debugPrint("Weights loaded successfully, loading decoder\n");
     // Initialize Decoder with weights
     Decoder decoder(config, weights);
 
     // Create and initialize the FinalLinearLayer with weights
     FinalLinearLayer final_linear_layer(config, cublas, cudnn, weights);
-
-    // Allocate memory for encoder input and output
-    float *d_encoder_input = nullptr;
-    float *d_encoder_output = nullptr;
-    size_t input_size = config.max_seq_len * config.hidden_dim * sizeof(float);
-    cudaMalloc(&d_encoder_input, input_size);
-    cudaMalloc(&d_encoder_output, input_size);
-
-    // Copy the input embeddings to encoder input
-    cudaMemcpy(d_encoder_input, d_token_embeddings, input_size, cudaMemcpyDeviceToDevice);
-
-    // Create CUDA stream
-    cudaStream_t stream;
-    cudaStreamCreate(&stream);
-
-    // Run Encoder forward pass
-    encoder.forward(d_encoder_output, d_encoder_input, config.batch_size, config.max_seq_len, stream);
-
-    // Synchronize after encoder
-    cudaStreamSynchronize(stream);
-
-    // Print intermediate encoder output
-    std::vector<float> h_encoder_output(config.max_seq_len * config.hidden_dim);
-    cudaMemcpy(h_encoder_output.data(), d_encoder_output, input_size, cudaMemcpyDeviceToHost);
-    debugPrint("Encoder output (first 10 elements): ");
-    for (int i = 0; i < 10 && i < h_encoder_output.size(); ++i)
-    {
-        debugPrint("%f ", h_encoder_output[i]);
-    }
-    debugPrint("\n");
 
     // Allocate memory for decoder input and output
     float *d_decoder_input = nullptr;
@@ -269,9 +234,13 @@ int main(int argc, char *argv[])
     cudaMalloc(&d_decoder_input, decoder_input_size);
     cudaMalloc(&d_decoder_output, decoder_input_size);
 
+    // Create CUDA stream
+    cudaStream_t stream;
+    cudaStreamCreate(&stream);
+
     // Initialize generation variables
     std::vector<int> generated_tokens;
-    int current_token_id = config.start_token_id; // Assuming start_token_id is defined in config
+    int current_token_id = config.start_token_id;
     int generation_step = 0;
 
     // Allocate memory for the current token embedding
@@ -288,10 +257,9 @@ int main(int argc, char *argv[])
         // Prepare decoder input
         cudaMemcpy(d_decoder_input, d_current_token_embedding, decoder_input_size, cudaMemcpyDeviceToDevice);
 
-        // Run Decoder forward pass
         decoder.forward(d_decoder_output,
                         d_decoder_input,
-                        d_encoder_output,
+                        nullptr,
                         config.batch_size,
                         seq_len,
                         stream);
@@ -365,10 +333,6 @@ int main(int argc, char *argv[])
     cudaFree(d_decoder_input);
     cudaFree(d_decoder_output);
     cudaFree(d_current_token_embedding);
-
-    // Cleanup encoder inputs and outputs
-    cudaFree(d_encoder_input);
-    cudaFree(d_encoder_output);
 
     // Cleanup token embeddings and positional encodings
     cudaFree(d_token_embeddings);
