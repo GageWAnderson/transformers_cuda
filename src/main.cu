@@ -89,17 +89,25 @@ bool parseArguments(int argc, char *argv[], Config &config)
         }
     }
 
-    // If weights file was specified, try to load it
+    // If weights file was specified, check architecture and try to load it
     if (!weights_file.empty())
     {
-        auto dims = loadGPT2ModelWeights(weights_file);
-        if (!dims.valid)
+        if (config.model_arch == ModelArchitecture::GPT2)
         {
-            std::cerr << "Failed to load weights from: " << weights_file << std::endl;
+            auto dims = loadGPT2ModelWeights(weights_file);
+            if (!dims.valid)
+            {
+                std::cerr << "Failed to load weights from: " << weights_file << std::endl;
+                return false;
+            }
+            // Update config with dimensions from weights
+            config.updateFromWeights(dims);
+        }
+        else
+        {
+            std::cerr << "Error: Model architecture is not supported. Cannot load weights." << std::endl;
             return false;
         }
-        // Update config with dimensions from weights
-        config.updateFromWeights(dims);
     }
 
     return true;
