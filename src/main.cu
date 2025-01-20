@@ -53,11 +53,8 @@ bool loadConfiguration(Config &config)
  *
  * Processes command line arguments to override config values.
  */
-bool parseArguments(int argc, char *argv[], Config &config)
+bool parseArguments(int argc, char *argv[], Config &config, std::string &weights_file)
 {
-    // Add weights_file variable to store the path
-    std::string weights_file;
-
     for (int i = 1; i < argc; ++i)
     {
         std::string arg = argv[i];
@@ -86,26 +83,6 @@ bool parseArguments(int argc, char *argv[], Config &config)
         {
             std::cerr << "Unknown argument: " << arg << std::endl;
             printUsage();
-            return false;
-        }
-    }
-
-    // If weights file was specified, check architecture and try to load it
-    if (!weights_file.empty())
-    {
-        if (config.model_arch == ModelArchitecture::GPT2)
-        {
-            GPT2Weights* weights = loadGPT2ModelWeights(weights_file);
-            if (!weights) {
-                std::cerr << "Failed to load weights from: " << weights_file << std::endl;
-                return false;
-            }
-            debugPrint("Successfully loaded GPT-2 model weights\n");
-            delete weights;
-        }
-        else
-        {
-            std::cerr << "Error: Model architecture is not supported. Cannot load weights." << std::endl;
             return false;
         }
     }
@@ -216,7 +193,8 @@ int main(int argc, char *argv[])
     loadConfiguration(config);
 
     // Parse command-line arguments and load weights
-    if (!parseArguments(argc, argv, config))
+    std::string weights_file;
+    if (!parseArguments(argc, argv, config, weights_file))
     {
         return 1;
     }
@@ -255,6 +233,44 @@ int main(int argc, char *argv[])
     // Initialize Encoder (if using encoder-decoder architecture)
     Encoder encoder(config);
 
+    // Initialize Decoder
+    Decoder decoder(config);
+
+    // Create and initialize the FinalLinearLayer
+    FinalLinearLayer final_linear_layer(config, cublas, cudnn, nullptr);
+    final_linear_layer.initialize();
+
+    // If weights file was specified, check architecture and try to load it
+    if (!weights_file.empty())
+    {
+        if (config.model_arch == ModelArchitecture::GPT2)
+        {
+            GPT2Weights* weights = loadGPT2ModelWeights(weights_file);
+            if (!weights) {
+                std::cerr << "Failed to load weights from: " << weights_file << std::endl;
+                return 1;
+            }
+            debugPrint("Successfully loaded GPT-2 model weights\n");
+
+            // Forward weights to encoder
+            encoder.loadWeights(weights);
+
+            // Forward weights to decoder
+            decoder.loadWeights(weights);
+
+            // Forward final layer norm weights to final linear layer
+            final_linear_layer.loadWeights(weights->getFinalLayerNormWeight(), 
+                                         weights->getFinalLayerNormBias());
+
+            delete weights;
+        }
+        else
+        {
+            std::cerr << "Error: Model architecture is not supported. Cannot load weights." << std::endl;
+            return 1;
+        }
+    }
+
     // Allocate memory for encoder input and output
     float *d_encoder_input = nullptr;
     float *d_encoder_output = nullptr;
@@ -285,9 +301,6 @@ int main(int argc, char *argv[])
     }
     debugPrint("\n");
 
-    // Initialize Decoder
-    Decoder decoder(config);
-
     // Allocate memory for decoder input and output
     float *d_decoder_input = nullptr;
     float *d_decoder_output = nullptr;
@@ -303,10 +316,6 @@ int main(int argc, char *argv[])
     // Allocate memory for the current token embedding
     float *d_current_token_embedding = nullptr;
     cudaMalloc(&d_current_token_embedding, decoder_input_size);
-
-    // Create and initialize the FinalLinearLayer
-    FinalLinearLayer final_linear_layer(config, cublas, cudnn, nullptr);
-    final_linear_layer.initialize();
 
     debugPrint("\nGenerating tokens:\n");
     int seq_len = 1; // Sequence length is 1 for autoregressive decoding

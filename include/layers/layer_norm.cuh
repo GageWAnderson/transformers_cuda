@@ -13,6 +13,8 @@ public:
 
     void forward(float *output, const float *input, int seq_len, cudaStream_t stream);
     void initialize_temp_storage(int max_seq_len);
+    void setGamma(float* weight);
+    void setBeta(float* bias);
 
 private:
     int hidden_dim;

@@ -98,6 +98,42 @@ void FinalLinearLayer::freeWeights()
         cudaFree(d_linear_weights_);
         d_linear_weights_ = nullptr;
     }
+    
+    if (d_linear_bias_)
+    {
+        cudaFree(d_linear_bias_);
+        d_linear_bias_ = nullptr;
+    }
+}
+
+/**
+ * @brief Loads pre-trained weights and biases into the layer
+ * @param weights Pointer to weights data
+ * @param bias Pointer to bias data
+ * 
+ * Copies provided weights and biases to GPU memory for use in forward pass.
+ */
+void FinalLinearLayer::loadWeights(float *weights, float *bias)
+{
+    // Allocate memory if not already allocated
+    if (!d_linear_weights_) {
+        allocateWeights();
+    }
+
+    // Calculate sizes
+    size_t weights_size = config_.hidden_dim * config_.vocab_size * sizeof(float);
+    size_t bias_size = config_.vocab_size * sizeof(float);
+
+    // Copy weights to device
+    cudaMemcpy(d_linear_weights_, weights, weights_size, cudaMemcpyHostToDevice);
+
+    // Allocate and copy bias if provided
+    if (bias) {
+        if (!d_linear_bias_) {
+            cudaMalloc(&d_linear_bias_, bias_size);
+        }
+        cudaMemcpy(d_linear_bias_, bias, bias_size, cudaMemcpyHostToDevice);
+    }
 }
 
 /**
@@ -141,6 +177,12 @@ void FinalLinearLayer::forward(float *d_input, float *d_logits, int seq_len)
     if (error != cudaSuccess)
     {
         std::cerr << "CUDA error in linear transform kernel: " << cudaGetErrorString(error) << std::endl;
+    }
+
+    // If bias is available, add it to the output
+    if (d_linear_bias_) {
+        // TODO: Add bias addition kernel call here
+        // This would need to be implemented as a separate CUDA kernel
     }
 
     // Apply softmax to the logits

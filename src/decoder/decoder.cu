@@ -22,40 +22,10 @@ Decoder::Decoder(const Config &config)
     // Initialize components for each layer
     for (int i = 0; i < num_layers; ++i)
     {
-        // Initialize weights and biases as 0
-        float *W_q_ptr = nullptr, *W_k_ptr = nullptr, *W_v_ptr = nullptr, *W_o_ptr = nullptr;
-        float *b_q_ptr = nullptr, *b_k_ptr = nullptr, *b_v_ptr = nullptr, *b_o_ptr = nullptr;
-        float *W1_ptr = nullptr, *b1_ptr = nullptr, *W2_ptr = nullptr, *b2_ptr = nullptr;
-
-        cudaMalloc(&W_q_ptr, hidden_dim * hidden_dim * sizeof(float));
-        cudaMalloc(&W_k_ptr, hidden_dim * hidden_dim * sizeof(float));
-        cudaMalloc(&W_v_ptr, hidden_dim * hidden_dim * sizeof(float));
-        cudaMalloc(&W_o_ptr, hidden_dim * hidden_dim * sizeof(float));
-        cudaMalloc(&b_q_ptr, hidden_dim * sizeof(float));
-        cudaMalloc(&b_k_ptr, hidden_dim * sizeof(float));
-        cudaMalloc(&b_v_ptr, hidden_dim * sizeof(float));
-        cudaMalloc(&b_o_ptr, hidden_dim * sizeof(float));
-        cudaMalloc(&W1_ptr, hidden_dim * intermediate_dim * sizeof(float));
-        cudaMalloc(&b1_ptr, intermediate_dim * sizeof(float));
-        cudaMalloc(&W2_ptr, intermediate_dim * hidden_dim * sizeof(float));
-        cudaMalloc(&b2_ptr, hidden_dim * sizeof(float));
-
-        cudaMemset(W_q_ptr, 0, hidden_dim * hidden_dim * sizeof(float));
-        cudaMemset(W_k_ptr, 0, hidden_dim * hidden_dim * sizeof(float));
-        cudaMemset(W_v_ptr, 0, hidden_dim * hidden_dim * sizeof(float));
-        cudaMemset(W_o_ptr, 0, hidden_dim * hidden_dim * sizeof(float));
-        cudaMemset(b_q_ptr, 0, hidden_dim * sizeof(float));
-        cudaMemset(b_k_ptr, 0, hidden_dim * sizeof(float));
-        cudaMemset(b_v_ptr, 0, hidden_dim * sizeof(float));
-        cudaMemset(b_o_ptr, 0, hidden_dim * sizeof(float));
-        cudaMemset(W1_ptr, 0, hidden_dim * intermediate_dim * sizeof(float));
-        cudaMemset(b1_ptr, 0, intermediate_dim * sizeof(float));
-        cudaMemset(W2_ptr, 0, intermediate_dim * hidden_dim * sizeof(float));
-        cudaMemset(b2_ptr, 0, hidden_dim * sizeof(float));
-
-        self_attention_layers[i] = new MultiHeadAttention(hidden_dim, num_heads, W_q_ptr, W_k_ptr, W_v_ptr, W_o_ptr);
-        encoder_attention_layers[i] = new MultiHeadAttention(hidden_dim, num_heads, W_q_ptr, W_k_ptr, W_v_ptr, W_o_ptr);
-        feed_forward_layers[i] = new FeedForward(hidden_dim, intermediate_dim, W1_ptr, b1_ptr, W2_ptr, b2_ptr);
+        // Initialize with nullptr - weights will be set later in loadWeights()
+        self_attention_layers[i] = new MultiHeadAttention(hidden_dim, num_heads);
+        encoder_attention_layers[i] = new MultiHeadAttention(hidden_dim, num_heads);
+        feed_forward_layers[i] = new FeedForward(hidden_dim, intermediate_dim);
         layer_norm1_layers[i] = new LayerNorm(hidden_dim);
         layer_norm2_layers[i] = new LayerNorm(hidden_dim);
         layer_norm3_layers[i] = new LayerNorm(hidden_dim);
@@ -151,4 +121,33 @@ void Decoder::forward(float *output,
     cudaFree(current_input);
     cudaFree(current_output);
     cudaFree(residual);
+}
+
+void Decoder::loadWeights(const GPT2Weights* weights) {
+    for (int i = 0; i < num_layers; i++) {
+        // Set self attention weights using getters
+        self_attention_layers[i]->setQueryWeight(weights->getAttentionQKVWeight(i));
+        self_attention_layers[i]->setQueryBias(weights->getAttentionQKVBias(i));
+        self_attention_layers[i]->setOutputProjWeight(weights->getAttentionProjectionWeight(i));
+        self_attention_layers[i]->setOutputProjBias(weights->getAttentionProjectionBias(i));
+
+        // Set encoder-decoder attention weights
+        encoder_attention_layers[i]->setQueryWeight(weights->getAttentionQKVWeight(i));
+        encoder_attention_layers[i]->setQueryBias(weights->getAttentionQKVBias(i));
+        encoder_attention_layers[i]->setOutputProjWeight(weights->getAttentionProjectionWeight(i));
+        encoder_attention_layers[i]->setOutputProjBias(weights->getAttentionProjectionBias(i));
+
+        // Set layer norm weights
+        layer_norm1_layers[i]->setGamma(weights->getAttentionLayerNormWeight(i));
+        layer_norm1_layers[i]->setBeta(weights->getAttentionLayerNormBias(i));
+        
+        layer_norm2_layers[i]->setGamma(weights->getFFNLayerNormWeight(i));
+        layer_norm2_layers[i]->setBeta(weights->getFFNLayerNormBias(i));
+
+        // Set FFN weights
+        feed_forward_layers[i]->setWeight1(weights->getFFNFC1Weight(i));
+        feed_forward_layers[i]->setBias1(weights->getFFNFC1Bias(i));
+        feed_forward_layers[i]->setWeight2(weights->getFFNFC2Weight(i));
+        feed_forward_layers[i]->setBias2(weights->getFFNFC2Bias(i));
+    }
 }

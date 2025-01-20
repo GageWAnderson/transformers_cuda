@@ -52,6 +52,11 @@ public:
                  int seq_len,
                  cudaStream_t stream,
                  bool mask = false);
+
+    void setQueryWeight(float* weight) { W_q = weight; }
+    void setQueryBias(float* bias) { b_q = bias; }
+    void setOutputProjWeight(float* weight) { W_o = weight; }
+    void setOutputProjBias(float* bias) { b_o = bias; }
 };
 
 #endif // MULTIHEAD_ATTENTION_H

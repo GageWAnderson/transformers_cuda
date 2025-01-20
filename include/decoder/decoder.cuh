@@ -5,6 +5,7 @@
 #include "../layers/multihead_attention.cuh"
 #include "../layers/feed_forward.cuh"
 #include "../layers/layer_norm.cuh"
+#include "gpt2_weights.cuh"
 
 class Decoder
 {
@@ -33,6 +34,8 @@ public:
                  int batch_size,
                  int seq_len,
                  cudaStream_t stream);
+
+    void loadWeights(const GPT2Weights* weights);
 };
 
 #endif // DECODER_H

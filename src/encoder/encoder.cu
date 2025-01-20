@@ -1,6 +1,7 @@
 #include "encoder/encoder.cuh"
 #include "layers/layer_norm.cuh"
 #include "utils/utils.cuh"
+#include "gpt2_weights.cuh"
 #include <cuda_runtime.h>
 #include <cuda.h>
 
@@ -29,13 +30,9 @@ Encoder::Encoder(const Config &config)
     // Initialize components for each layer
     for (int i = 0; i < num_layers; ++i)
     {
-        // Initialize weights and biases as null
-        float *W_q_ptr = nullptr, *W_k_ptr = nullptr, *W_v_ptr = nullptr, *W_o_ptr = nullptr;
-        float *b_q_ptr = nullptr, *b_k_ptr = nullptr, *b_v_ptr = nullptr, *b_o_ptr = nullptr;
-        float *W1_ptr = nullptr, *b1_ptr = nullptr, *W2_ptr = nullptr, *b2_ptr = nullptr;
-
-        self_attention_layers[i] = new MultiHeadAttention(hidden_dim, num_heads, W_q_ptr, W_k_ptr, W_v_ptr, W_o_ptr);
-        feed_forward_layers[i] = new FeedForward(hidden_dim, intermediate_dim, W1_ptr, b1_ptr, W2_ptr, b2_ptr);
+        // Initialize with nullptr - weights will be set later in loadWeights()
+        self_attention_layers[i] = new MultiHeadAttention(hidden_dim, num_heads);
+        feed_forward_layers[i] = new FeedForward(hidden_dim, intermediate_dim);
         layer_norm1_layers[i] = new LayerNorm(hidden_dim);
         layer_norm2_layers[i] = new LayerNorm(hidden_dim);
     }
@@ -131,4 +128,27 @@ void Encoder::forward(float *output, const float *input, int batch_size, int seq
     cudaFree(current_input);
     cudaFree(current_output);
     cudaFree(residual);
+}
+
+void Encoder::loadWeights(const GPT2Weights* weights) {
+    for (int i = 0; i < num_layers; i++) {
+        // Set attention weights using getters
+        self_attention_layers[i]->setQueryWeight(weights->getAttentionQKVWeight(i));
+        self_attention_layers[i]->setQueryBias(weights->getAttentionQKVBias(i));
+        self_attention_layers[i]->setOutputProjWeight(weights->getAttentionProjectionWeight(i));
+        self_attention_layers[i]->setOutputProjBias(weights->getAttentionProjectionBias(i));
+
+        // Set layer norm weights
+        layer_norm1_layers[i]->setGamma(weights->getAttentionLayerNormWeight(i));
+        layer_norm1_layers[i]->setBeta(weights->getAttentionLayerNormBias(i));
+        
+        layer_norm2_layers[i]->setGamma(weights->getFFNLayerNormWeight(i));
+        layer_norm2_layers[i]->setBeta(weights->getFFNLayerNormBias(i));
+
+        // Set FFN weights
+        feed_forward_layers[i]->setWeight1(weights->getFFNFC1Weight(i));
+        feed_forward_layers[i]->setBias1(weights->getFFNFC1Bias(i));
+        feed_forward_layers[i]->setWeight2(weights->getFFNFC2Weight(i));
+        feed_forward_layers[i]->setBias2(weights->getFFNFC2Bias(i));
+    }
 }

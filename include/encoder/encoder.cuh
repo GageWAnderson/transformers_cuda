@@ -26,6 +26,7 @@ public:
     ~Encoder();
 
     void forward(float *output, const float *input, int batch_size, int seq_len, cudaStream_t stream);
+    void loadWeights(const GPT2Weights* weights);
 };
 
 #endif // ENCODER_H

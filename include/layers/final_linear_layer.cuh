@@ -18,6 +18,7 @@ public:
 
     void initialize();
     void forward(float *d_input, float *d_logits, int seq_len);
+    void loadWeights(float *weights, float *bias);
 
 private:
     const Config &config_;
@@ -25,6 +26,7 @@ private:
     cudnnHandle_t &cudnn_;
 
     float *d_linear_weights_ = nullptr;
+    float *d_linear_bias_ = nullptr;
 
     void allocateWeights();
     void freeWeights();

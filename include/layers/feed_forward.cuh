@@ -21,6 +21,11 @@ public:
     ~FeedForward();
 
     void forward(float *output, const float *input, int seq_len, cudaStream_t stream);
+
+    void setWeight1(float* weight) { d_W1 = weight; }
+    void setBias1(float* bias) { d_b1 = bias; }
+    void setWeight2(float* weight) { d_W2 = weight; }
+    void setBias2(float* bias) { d_b2 = bias; }
 };
 
 #endif // FEED_FORWARD_H
