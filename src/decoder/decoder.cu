@@ -62,20 +62,23 @@ Decoder::Decoder(const Config &config, const GPT2Weights* weights)
         );
 
         // Initialize feed forward with direct weight references
-        feed_forward_layers[i] = new FeedForward(hidden_dim, intermediate_dim);
-        feed_forward_layers[i]->setWeight1(layer.ffn_fc1_weight);
-        feed_forward_layers[i]->setBias1(layer.ffn_fc1_bias);
-        feed_forward_layers[i]->setWeight2(layer.ffn_fc2_weight);
-        feed_forward_layers[i]->setBias2(layer.ffn_fc2_bias);
+        feed_forward_layers[i] = new FeedForward(
+            hidden_dim, 
+            intermediate_dim,
+            layer.ffn_fc1_weight,  // W1
+            layer.ffn_fc1_bias,    // b1 
+            layer.ffn_fc2_weight,  // W2
+            layer.ffn_fc2_bias     // b2
+        );
 
-        // Initialize layer norms with direct weight references
-        layer_norm1_layers[i] = new LayerNorm(hidden_dim);
-        layer_norm1_layers[i]->setGamma(layer.attn_ln_weight);
-        layer_norm1_layers[i]->setBeta(layer.attn_ln_bias);
+        // Initialize layer norms with weights directly in constructor
+        layer_norm1_layers[i] = new LayerNorm(hidden_dim, 
+                                             layer.attn_ln_weight,
+                                             layer.attn_ln_bias);
 
-        layer_norm2_layers[i] = new LayerNorm(hidden_dim);
-        layer_norm2_layers[i]->setGamma(layer.ffn_ln_weight);
-        layer_norm2_layers[i]->setBeta(layer.ffn_ln_bias);
+        layer_norm2_layers[i] = new LayerNorm(hidden_dim,
+                                             layer.ffn_ln_weight,
+                                             layer.ffn_ln_bias);
     }
 }
 

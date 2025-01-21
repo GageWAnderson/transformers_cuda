@@ -8,12 +8,10 @@
 class LayerNorm
 {
 public:
-    LayerNorm(int hidden_dim);
+    LayerNorm(int hidden_dim, float* gamma_weights, float* beta_weights);
     ~LayerNorm();
 
     void forward(float *output, const float *input, int seq_len, cudaStream_t stream);
-    void setGamma(float* gamma_weights);
-    void setBeta(float* beta_weights);
 
 private:
     int hidden_dim;

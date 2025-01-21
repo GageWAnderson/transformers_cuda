@@ -7,7 +7,8 @@
 #include <stdio.h>
 #include <cub/cub.cuh>
 
-LayerNorm::LayerNorm(int hidden_dim) : hidden_dim(hidden_dim)
+LayerNorm::LayerNorm(int hidden_dim, float* gamma_weights, float* beta_weights) 
+    : hidden_dim(hidden_dim), gamma(gamma_weights), beta(beta_weights)
 {
     // Verify we have a valid CUDA device
     int device_count;
@@ -16,23 +17,10 @@ LayerNorm::LayerNorm(int hidden_dim) : hidden_dim(hidden_dim)
         throw std::runtime_error("No CUDA devices available");
     }
 
-    // Allocate and initialize gamma and beta (scale and shift parameters)
-    CUDA_CHECK(cudaMalloc(&gamma, hidden_dim * sizeof(float)));
-    CUDA_CHECK(cudaMalloc(&beta, hidden_dim * sizeof(float)));
-
-    // Initialize gamma to 1 and beta to 0
-    float *h_gamma = (float *)malloc(hidden_dim * sizeof(float));
-    float *h_beta = (float *)malloc(hidden_dim * sizeof(float));
-    for (int i = 0; i < hidden_dim; ++i)
-    {
-        h_gamma[i] = 1.0f;
-        h_beta[i] = 0.0f;
+    // Validate input parameters
+    if (!gamma_weights || !beta_weights) {
+        throw std::runtime_error("Null pointer passed for gamma or beta weights");
     }
-    CUDA_CHECK(cudaMemcpy(gamma, h_gamma, hidden_dim * sizeof(float), cudaMemcpyHostToDevice));
-    CUDA_CHECK(cudaMemcpy(beta, h_beta, hidden_dim * sizeof(float), cudaMemcpyHostToDevice));
-
-    free(h_gamma);
-    free(h_beta);
 
     // Initialize cuBLAS
     cublasCreate(&cublas_handle);
@@ -40,16 +28,7 @@ LayerNorm::LayerNorm(int hidden_dim) : hidden_dim(hidden_dim)
 
 LayerNorm::~LayerNorm() noexcept
 {
-    // Free resources
-    cudaError_t err;
-    err = cudaFree(gamma);
-    if (err != cudaSuccess) {
-        fprintf(stderr, "CUDA error: %s\n", cudaGetErrorString(err));
-    }
-    err = cudaFree(beta);
-    if (err != cudaSuccess) {
-        fprintf(stderr, "CUDA error: %s\n", cudaGetErrorString(err));
-    }
+    // No need to free gamma and beta as they're now just references
     cublasDestroy(cublas_handle);
 }
 
