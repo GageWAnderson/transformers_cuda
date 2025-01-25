@@ -96,6 +96,9 @@ public:
     // Get number of layers
     int getNumLayers() const { return layers.size(); }
 
+    // Get model dimensions
+    const ModelDimensions &getDims() const { return dims; }
+
 private:
     ModelDimensions dims;
     std::vector<LayerWeights> layers;
@@ -114,7 +117,8 @@ private:
     bool copyWeightToDevice(const std::vector<uint8_t> &data,
                             size_t offset,
                             size_t size,
-                            float *dest);
+                            float *dest,
+                            Dtype src_dtype);
     bool loadTensor(const std::string &name,
                     const TensorInfo &info,
                     const std::vector<uint8_t> &data);

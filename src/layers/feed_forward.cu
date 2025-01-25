@@ -42,11 +42,27 @@ FeedForward::FeedForward(int hidden_dim, int intermediate_dim,
     this->hidden_dim = hidden_dim;
     this->intermediate_dim = intermediate_dim;
 
-    // Initialize pointers - they will be set later via setters if null
+    // Initialize pointers
     d_W1 = W1_ptr;
     d_b1 = b1_ptr;
     d_W2 = W2_ptr;
     d_b2 = b2_ptr;
+
+    // Add debug prints for all weights and biases
+    float h_W1[5], h_b1[5], h_W2[5], h_b2[5];
+    cudaMemcpy(h_W1, d_W1, 5 * sizeof(float), cudaMemcpyDeviceToHost);
+    cudaMemcpy(h_b1, d_b1, 5 * sizeof(float), cudaMemcpyDeviceToHost);
+    cudaMemcpy(h_W2, d_W2, 5 * sizeof(float), cudaMemcpyDeviceToHost);
+    cudaMemcpy(h_b2, d_b2, 5 * sizeof(float), cudaMemcpyDeviceToHost);
+    
+    debugPrint("FeedForward W1 (first 5): %f %f %f %f %f\n",
+               h_W1[0], h_W1[1], h_W1[2], h_W1[3], h_W1[4]);
+    debugPrint("FeedForward b1 (first 5): %f %f %f %f %f\n",
+               h_b1[0], h_b1[1], h_b1[2], h_b1[3], h_b1[4]);
+    debugPrint("FeedForward W2 (first 5): %f %f %f %f %f\n",
+               h_W2[0], h_W2[1], h_W2[2], h_W2[3], h_W2[4]);
+    debugPrint("FeedForward b2 (first 5): %f %f %f %f %f\n",
+               h_b2[0], h_b2[1], h_b2[2], h_b2[3], h_b2[4]);
 }
 
 FeedForward::~FeedForward()

@@ -24,6 +24,16 @@ LayerNorm::LayerNorm(int hidden_dim, float* gamma_weights, float* beta_weights)
 
     // Initialize cuBLAS
     cublasCreate(&cublas_handle);
+
+    // Add debug prints for gamma and beta weights
+    float h_gamma[5], h_beta[5];
+    cudaMemcpy(h_gamma, gamma, 5 * sizeof(float), cudaMemcpyDeviceToHost);
+    cudaMemcpy(h_beta, beta, 5 * sizeof(float), cudaMemcpyDeviceToHost);
+    
+    debugPrint("LayerNorm gamma (first 5): %f %f %f %f %f\n",
+               h_gamma[0], h_gamma[1], h_gamma[2], h_gamma[3], h_gamma[4]);
+    debugPrint("LayerNorm beta (first 5): %f %f %f %f %f\n",
+               h_beta[0], h_beta[1], h_beta[2], h_beta[3], h_beta[4]);
 }
 
 LayerNorm::~LayerNorm() noexcept
@@ -121,12 +131,4 @@ void LayerNorm::forward(float* output, const float* input, int seq_len, cudaStre
         input, output, gamma, beta, hidden_dim, total_sequences, 1e-5f);
     
     CUDA_CHECK(cudaPeekAtLastError()); // Check for kernel launch errors
-}
-
-void LayerNorm::setGamma(float* gamma_weights) {
-    CUDA_CHECK(cudaMemcpy(gamma, gamma_weights, hidden_dim * sizeof(float), cudaMemcpyDeviceToDevice));
-}
-
-void LayerNorm::setBeta(float* beta_weights) {
-    CUDA_CHECK(cudaMemcpy(beta, beta_weights, hidden_dim * sizeof(float), cudaMemcpyDeviceToDevice));
 }

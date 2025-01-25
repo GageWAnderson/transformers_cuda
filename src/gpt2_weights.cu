@@ -4,6 +4,7 @@
 #include "utils/utils.cuh"
 #include <cstring>
 #include <exception>
+#include <cuda_fp16.h>
 
 int countLayers(const std::vector<std::pair<std::string, TensorInfo>> &tensor_infos)
 {
@@ -43,19 +44,20 @@ GPT2Weights::GPT2Weights(ModelDimensions &dims,
     // Add CUDA device initialization check
     int deviceCount;
     CUDA_CHECK(cudaGetDeviceCount(&deviceCount));
-    if (deviceCount == 0) {
+    if (deviceCount == 0)
+    {
         throw std::runtime_error("No CUDA devices available");
     }
-    
+
     // Select first available device
     CUDA_CHECK(cudaSetDevice(0));
-    
+
     cudaDeviceProp prop;
     CUDA_CHECK(cudaGetDeviceProperties(&prop, 0));
-    debugPrint("Using CUDA Device %s with %zu MB of memory\n", 
-               prop.name, 
-               prop.totalGlobalMem / (1024*1024));
-    
+    debugPrint("Using CUDA Device %s with %zu MB of memory\n",
+               prop.name,
+               prop.totalGlobalMem / (1024 * 1024));
+
     try
     {
         // Count layers before allocation
@@ -167,7 +169,8 @@ void GPT2Weights::allocateWeights()
         size_t wte_size = wte_info->shape[0] * wte_info->shape[1] * sizeof(float);
         debugPrint("Allocating token embedding: %zu bytes\n", wte_size);
         safeCudaMalloc((void **)&token_embedding, wte_size);
-        if (token_embedding == nullptr) {
+        if (token_embedding == nullptr)
+        {
             throw std::runtime_error("Failed to allocate token embedding");
         }
 
@@ -304,12 +307,28 @@ void GPT2Weights::freeWeights()
 bool GPT2Weights::copyWeightToDevice(const std::vector<uint8_t> &data,
                                      size_t offset,
                                      size_t size,
-                                     float *dest)
+                                     float *dest,
+                                     Dtype src_dtype)
 {
-    CUDA_CHECK(cudaMemcpy(dest,
-                          data.data() + offset,
-                          size,
-                          cudaMemcpyHostToDevice));
+    debugPrint("copyWeightToDevice called with offset = %zu, size = %zu, dtype = %d\n", offset, size, static_cast<int>(src_dtype));
+
+    // Create host buffer for conversion if needed
+    std::vector<float> host_buffer;
+    const void *src_ptr = data.data() + offset - 1;
+
+    switch (src_dtype)
+    {
+    case Dtype::F32:
+    {
+        debugPrint("Copying F32 data to device\n");
+        CUDA_CHECK(cudaMemcpy(dest, src_ptr, size, cudaMemcpyHostToDevice));
+        break;
+    }
+    default:
+        debugPrint("Unsupported dtype in copyWeightToDevice\n");
+        return false;
+    }
+    debugPrint("Successfully copied data to device\n");
     return true;
 }
 
@@ -319,6 +338,10 @@ bool GPT2Weights::loadTensor(const std::string &name,
 {
     size_t offset = info.data_offsets.first;
     size_t size = info.data_offsets.second - info.data_offsets.first;
+
+    // Add debug print for tensor loading
+    debugPrint("Loading tensor %s: offset=%zu, size=%zu, dtype=%d\n",
+               name.c_str(), offset, size, static_cast<int>(info.dtype));
 
     // Helper lambda to extract layer number from tensor name
     auto getLayerNum = [](const std::string &name) -> int
@@ -350,19 +373,19 @@ bool GPT2Weights::loadTensor(const std::string &name,
     // Handle embeddings and final layer norm
     if (name.find("wte.weight") != std::string::npos || name.find("transformer.wte.weight") != std::string::npos)
     {
-        return copyWeightToDevice(data, offset, size, token_embedding);
+        return copyWeightToDevice(data, offset, size, token_embedding, info.dtype);
     }
     else if (name.find("wpe.weight") != std::string::npos || name.find("transformer.wpe.weight") != std::string::npos)
     {
-        return copyWeightToDevice(data, offset, size, position_embedding);
+        return copyWeightToDevice(data, offset, size, position_embedding, info.dtype);
     }
     else if (name.find("ln_f.weight") != std::string::npos)
     {
-        return copyWeightToDevice(data, offset, size, final_ln_weight);
+        return copyWeightToDevice(data, offset, size, final_ln_weight, info.dtype);
     }
     else if (name.find("ln_f.bias") != std::string::npos)
     {
-        return copyWeightToDevice(data, offset, size, final_ln_bias);
+        return copyWeightToDevice(data, offset, size, final_ln_bias, info.dtype);
     }
 
     // Handle layer-specific weights
@@ -384,24 +407,24 @@ bool GPT2Weights::loadTensor(const std::string &name,
         }
 
         std::string weight_name = name.substr(layer_prefix + 2 + std::to_string(layer_num).length() + 1);
-        debugPrint("Loading tensor: %s, weight name: %s\n", name.c_str(), weight_name.c_str());
+        debugPrint("Loading tensor: %s, weight name: %s, offset: %zu, size: %zu, data type: %d\n", name.c_str(), weight_name.c_str(), offset, size, static_cast<int>(info.dtype));
 
         // Attention weights
         if (weight_name == "attn.c_attn.weight")
         {
-            return copyWeightToDevice(data, offset, size, layer.attn_qkv_weight);
+            return copyWeightToDevice(data, offset, size, layer.attn_qkv_weight, info.dtype);
         }
         else if (weight_name == "attn.c_attn.bias")
         {
-            return copyWeightToDevice(data, offset, size, layer.attn_qkv_bias);
+            return copyWeightToDevice(data, offset, size, layer.attn_qkv_bias, info.dtype);
         }
         else if (weight_name == "attn.c_proj.weight")
         {
-            return copyWeightToDevice(data, offset, size, layer.attn_proj_weight);
+            return copyWeightToDevice(data, offset, size, layer.attn_proj_weight, info.dtype);
         }
         else if (weight_name == "attn.c_proj.bias")
         {
-            return copyWeightToDevice(data, offset, size, layer.attn_proj_bias);
+            return copyWeightToDevice(data, offset, size, layer.attn_proj_bias, info.dtype);
         }
         // Add handling for attn.bias
         else if (weight_name == "attn.bias")
@@ -414,41 +437,41 @@ bool GPT2Weights::loadTensor(const std::string &name,
         // Layer norms
         else if (weight_name == "ln_1.weight")
         {
-            return copyWeightToDevice(data, offset, size, layer.attn_ln_weight);
+            return copyWeightToDevice(data, offset, size, layer.attn_ln_weight, info.dtype);
         }
         else if (weight_name == "ln_1.bias")
         {
-            return copyWeightToDevice(data, offset, size, layer.attn_ln_bias);
+            return copyWeightToDevice(data, offset, size, layer.attn_ln_bias, info.dtype);
         }
         else if (weight_name == "ln_2.weight")
         {
-            return copyWeightToDevice(data, offset, size, layer.ffn_ln_weight);
+            return copyWeightToDevice(data, offset, size, layer.ffn_ln_weight, info.dtype);
         }
         else if (weight_name == "ln_2.bias")
         {
-            return copyWeightToDevice(data, offset, size, layer.ffn_ln_bias);
+            return copyWeightToDevice(data, offset, size, layer.ffn_ln_bias, info.dtype);
         }
 
         // MLP/FFN weights
         else if (weight_name == "mlp.c_fc.weight")
         {
             layer.mlp_fc_weight = layer.ffn_fc1_weight;
-            return copyWeightToDevice(data, offset, size, layer.ffn_fc1_weight);
+            return copyWeightToDevice(data, offset, size, layer.ffn_fc1_weight, info.dtype);
         }
         else if (weight_name == "mlp.c_fc.bias")
         {
             layer.mlp_fc_bias = layer.ffn_fc1_bias;
-            return copyWeightToDevice(data, offset, size, layer.ffn_fc1_bias);
+            return copyWeightToDevice(data, offset, size, layer.ffn_fc1_bias, info.dtype);
         }
         else if (weight_name == "mlp.c_proj.weight")
         {
             layer.mlp_proj_weight = layer.ffn_fc2_weight;
-            return copyWeightToDevice(data, offset, size, layer.ffn_fc2_weight);
+            return copyWeightToDevice(data, offset, size, layer.ffn_fc2_weight, info.dtype);
         }
         else if (weight_name == "mlp.c_proj.bias")
         {
             layer.mlp_proj_bias = layer.ffn_fc2_bias;
-            return copyWeightToDevice(data, offset, size, layer.ffn_fc2_bias);
+            return copyWeightToDevice(data, offset, size, layer.ffn_fc2_bias, info.dtype);
         }
     }
 
@@ -460,13 +483,30 @@ bool GPT2Weights::loadWeights(const std::vector<std::pair<std::string, TensorInf
                               const std::vector<uint8_t> &data)
 {
     bool success = true;
+    size_t total_size = 0;
+    
+    // Get header size (first 8 bytes contain header length)
+    uint64_t header_length = *reinterpret_cast<const uint64_t *>(data.data());
+    size_t header_total_size = 8 + header_length;  // 8 bytes for length + header content
+    
     for (const auto &[name, info] : tensor_infos)
     {
+        size_t size = info.data_offsets.second - info.data_offsets.first;
+        total_size += size;
         if (!loadTensor(name, info, data))
         {
             debugPrint("Failed to load tensor: %s\n", name.c_str());
             success = false;
         }
     }
+
+    // Check if the total size matches the data buffer size minus header
+    if (total_size != (data.size() - header_total_size))
+    {
+        debugPrint("Error: Total size of all tensors %zu does not match data buffer size minus header %zu\n", 
+                  total_size, (data.size() - header_total_size));
+        return false;
+    }
+
     return success;
 }

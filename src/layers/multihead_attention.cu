@@ -10,10 +10,37 @@
 #include "utils/utils.cuh"
 #include "utils/debug.cuh"
 
+__global__ void scaleKernel(float *attention_scores, int n, float scale)
+{
+    int idx = blockIdx.x * blockDim.x + threadIdx.x;
+    if (idx < n)
+    {
+        attention_scores[idx] *= scale;
+    }
+}
+
+__global__ void clipValuesKernel(float *data, int n, float max_val, float min_val)
+{
+    int idx = blockIdx.x * blockDim.x + threadIdx.x;
+    if (idx < n)
+    {
+        data[idx] = fmaxf(fminf(data[idx], max_val), min_val);
+    }
+}
+
 void computeAttentionScores(const float *Q, const float *K, float *attention_scores,
                             int batch_size, int num_heads, int seq_len, int head_dim,
                             float scale, cublasHandle_t cublas_handle, cudaStream_t stream)
 {
+    // Add debug prints for dimensions and scale
+    debugPrint("Computing attention scores with scale=%f, head_dim=%d\n", scale, head_dim);
+
+    // Verify inputs are valid
+    float h_check[5];
+    cudaMemcpy(h_check, Q, 5 * sizeof(float), cudaMemcpyDeviceToHost);
+    debugPrint("Q values before matmul: %f %f %f %f %f\n",
+               h_check[0], h_check[1], h_check[2], h_check[3], h_check[4]);
+
     // Set the cuBLAS stream
     cublasSetStream(cublas_handle, stream);
 
@@ -60,6 +87,16 @@ void computeAttentionScores(const float *Q, const float *K, float *attention_sco
     {
         // Handle error (e.g., throw an exception or print an error message)
     }
+
+    // Scale the attention scores after multiplication
+    int total_elements = batch_count * m * n;
+    scaleKernel<<<(total_elements + 255) / 256, 256, 0, stream>>>(
+        attention_scores, total_elements, scale);
+
+    // Verify outputs
+    cudaMemcpy(h_check, attention_scores, 5 * sizeof(float), cudaMemcpyDeviceToHost);
+    debugPrint("Attention scores after scaling: %f %f %f %f %f\n",
+               h_check[0], h_check[1], h_check[2], h_check[3], h_check[4]);
 }
 
 // Apply a mask to the attention scores
@@ -100,6 +137,17 @@ void applySoftmaxToAttentionScores(float *attention_scores,
                                    int batch_size, int num_heads, int seq_len,
                                    cudnnHandle_t cudnn_handle, cudaStream_t stream)
 {
+    // Add numerical stability check before softmax
+    float h_check[5];
+    cudaMemcpy(h_check, attention_scores, 5 * sizeof(float), cudaMemcpyDeviceToHost);
+    debugPrint("Pre-softmax scores: %f %f %f %f %f\n",
+               h_check[0], h_check[1], h_check[2], h_check[3], h_check[4]);
+
+    // Clip extremely large values to prevent overflow
+    int total_elements = batch_size * num_heads * seq_len * seq_len;
+    clipValuesKernel<<<(total_elements + 255) / 256, 256, 0, stream>>>(
+        attention_scores, total_elements, 1e4f, -1e4f);
+
     // Set the cuDNN stream
     cudnnSetStream(cudnn_handle, stream);
 
@@ -137,6 +185,11 @@ void applySoftmaxToAttentionScores(float *attention_scores,
 
     // Destroy tensor descriptor
     cudnnDestroyTensorDescriptor(tensor_desc);
+
+    // Verify output
+    cudaMemcpy(h_check, attention_scores, 5 * sizeof(float), cudaMemcpyDeviceToHost);
+    debugPrint("Post-softmax scores: %f %f %f %f %f\n",
+               h_check[0], h_check[1], h_check[2], h_check[3], h_check[4]);
 }
 
 void computeAttentionOutput(const float *attention_scores, const float *V, float *attention_output,
@@ -194,10 +247,10 @@ void computeAttentionOutput(const float *attention_scores, const float *V, float
 
 // Update constructor to take references instead of copying
 MultiHeadAttention::MultiHeadAttention(int hidden_dim, int num_heads,
-                                     float* W_q_ptr, float* W_k_ptr,
-                                     float* W_v_ptr, float* W_o_ptr,
-                                     float* b_q_ptr, float* b_k_ptr,
-                                     float* b_v_ptr, float* b_o_ptr)
+                                       float *W_q_ptr, float *W_k_ptr,
+                                       float *W_v_ptr, float *W_o_ptr,
+                                       float *b_q_ptr, float *b_k_ptr,
+                                       float *b_v_ptr, float *b_o_ptr)
 {
     this->hidden_dim = hidden_dim;
     this->num_heads = num_heads;
@@ -246,6 +299,18 @@ MultiHeadAttention::MultiHeadAttention(int hidden_dim, int num_heads,
                h_bv[0], h_bv[1], h_bv[2], h_bv[3], h_bv[4]);
     debugPrint("MultiHeadAttention b_o (first 5): %f %f %f %f %f\n",
                h_bo[0], h_bo[1], h_bo[2], h_bo[3], h_bo[4]);
+
+    // Verify weights are valid before using them
+    for (int i = 0; i < 5; i++)
+    {
+        if (std::isnan(h_Wq[i]) || std::isinf(h_Wq[i]))
+        {
+            debugPrint("Warning: Invalid weight detected in W_q[%d]: %f\n", i, h_Wq[i]);
+            // Initialize to small random value if invalid
+            float random_val = (float)(rand()) / RAND_MAX * 0.02f - 0.01f; // Random between -0.01 and 0.01
+            cudaMemcpy(&W_q[i], &random_val, sizeof(float), cudaMemcpyHostToDevice);
+        }
+    }
 }
 
 MultiHeadAttention::~MultiHeadAttention()
@@ -275,6 +340,38 @@ void MultiHeadAttention::forward(float *output,
                                  cudaStream_t stream,
                                  bool mask)
 {
+    // Validate inputs
+    if (!query_input || !key_value_input || !output)
+    {
+        debugPrint("Error: Null input/output pointers\n");
+        return;
+    }
+
+    // Validate dimensions
+    if (batch_size <= 0 || seq_len <= 0)
+    {
+        debugPrint("Error: Invalid batch_size=%d or seq_len=%d\n", batch_size, seq_len);
+        return;
+    }
+
+    // Validate weights
+    if (!W_q || !W_k || !W_v || !W_o)
+    {
+        debugPrint("Error: Uninitialized weights\n");
+        return;
+    }
+
+    // Add checks for NaN in weights
+    float s_check[5];
+    cudaMemcpy(s_check, W_q, 5 * sizeof(float), cudaMemcpyDeviceToHost);
+    for (int i = 0; i < 5; i++)
+    {
+        if (std::isnan(s_check[i]))
+        {
+            debugPrint("Warning: NaN detected in W_q[%d]\n", i);
+        }
+    }
+
     // Debug print inputs
     float h_query[5], h_key[5];
     cudaMemcpy(h_query, query_input, 5 * sizeof(float), cudaMemcpyDeviceToHost);
@@ -320,17 +417,17 @@ void MultiHeadAttention::forward(float *output,
         cublas_handle,
         CUBLAS_OP_N,
         CUBLAS_OP_N,
-        embed_dim,                  // m: rows of output
-        batch_size * seq_len,       // n: cols of output 
-        embed_dim,                  // k: inner dimension
+        embed_dim,            // m: rows of output
+        batch_size * seq_len, // n: cols of output
+        embed_dim,            // k: inner dimension
         &alpha,
-        W_q,                        // [embed_dim x embed_dim]
-        embed_dim,                  // leading dimension of W_q
-        query_input,               // [embed_dim x (batch_size * seq_len)]
-        embed_dim,                  // leading dimension of query_input
+        W_q,         // [embed_dim x embed_dim]
+        embed_dim,   // leading dimension of W_q
+        query_input, // [embed_dim x (batch_size * seq_len)]
+        embed_dim,   // leading dimension of query_input
         &beta,
-        Q,                         // [embed_dim x (batch_size * seq_len)]
-        embed_dim);                // leading dimension of Q
+        Q,          // [embed_dim x (batch_size * seq_len)]
+        embed_dim); // leading dimension of Q
 
     // Compute K = key_value_input * W_k
     cublasSgemm(
@@ -401,11 +498,6 @@ void MultiHeadAttention::forward(float *output,
 
     // Apply softmax to attention scores
     applySoftmaxToAttentionScores(attention_scores, batch_size, num_heads, seq_len, cudnn_handle, stream);
-
-    // After softmax
-    cudaMemcpy(h_scores, attention_scores, 5 * sizeof(float), cudaMemcpyDeviceToHost);
-    debugPrint("MultiHeadAttention after softmax (first 5): %f %f %f %f %f\n",
-               h_scores[0], h_scores[1], h_scores[2], h_scores[3], h_scores[4]);
 
     // Compute attention output
     float *attention_output;

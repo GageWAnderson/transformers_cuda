@@ -11,6 +11,7 @@
 #include "gpt2_weights.cuh"
 #include "config.cuh"
 #include "utils/load_weights.cuh"
+#include "utils/utils.cuh"
 
 using json = nlohmann::json;
 
@@ -204,15 +205,11 @@ std::pair<size_t, Metadata> SafeTensors::read_metadata(const std::vector<uint8_t
     {
         TensorInfo tensor_info;
 
-        // Parse dtype
         std::string dtype_str = info["dtype"].get<std::string>();
-        // You'll need to implement this conversion based on your dtype strings
-        // This is a simplified example:
         if (dtype_str == "F32")
             tensor_info.dtype = Dtype::F32;
         else if (dtype_str == "F16")
             tensor_info.dtype = Dtype::F16;
-        // ... add other dtype conversions as needed
 
         // Parse shape
         tensor_info.shape = info["shape"].get<std::vector<size_t>>();
@@ -259,7 +256,9 @@ GPT2Weights *loadGPT2ModelWeights(const std::string &weights_file)
         auto tensor_infos = safe_tensors.tensors();
 
         // Create GPT2Weights object which will also populate dims
-        return new GPT2Weights(dims, tensor_infos, safe_tensors.get_data());
+        weights = new GPT2Weights(dims, tensor_infos, safe_tensors.get_data());
+
+        return weights;
     }
     catch (const std::exception &e)
     {

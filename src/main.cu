@@ -273,7 +273,16 @@ int main(int argc, char *argv[])
                 std::cerr << "Failed to load weights from: " << weights_file << std::endl;
                 return 1;
             }
-            debugPrint("Successfully loaded GPT-2 model weights\n");
+            
+            // Add validation here
+            try {
+                validate_weights(weights, config);
+                debugPrint("Successfully loaded and validated GPT-2 model weights\n");
+            } catch (const std::exception& e) {
+                std::cerr << "Weight validation failed: " << e.what() << std::endl;
+                delete weights;
+                return 1;
+            }
         }
         else
         {
