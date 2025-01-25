@@ -159,9 +159,20 @@ void FinalLinearLayer::forward(float *d_input, float *d_logits, int seq_len, flo
 
     // Debug: Print the top logits after softmax
     cudaMemcpy(h_logits.data(), d_logits, batch_seq_len * vocab_size * sizeof(float), cudaMemcpyDeviceToHost);
-    debugPrint("Top logits after softmax: ");
+    debugPrint("Logits after softmax: ");
     for (int i = 0; i < std::min(10, static_cast<int>(h_logits.size())); ++i) {
         debugPrint("%f ", h_logits[i]);
+    }
+    debugPrint("\n");
+
+    // Sort logits after softmax and get indexes of the top 5
+    std::partial_sort(indices.begin(), indices.begin() + 5, indices.end(),
+                      [&h_logits](int a, int b) { return h_logits[a] > h_logits[b]; });
+
+    // Debug: Print the top 5 logits and their indices after softmax
+    debugPrint("Top 5 logits after softmax: ");
+    for (int i = 0; i < 5; ++i) {
+        debugPrint("Index: %d, Logit: %f ", indices[i], h_logits[indices[i]]);
     }
     debugPrint("\n");
 }

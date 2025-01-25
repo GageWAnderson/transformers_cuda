@@ -130,7 +130,7 @@ void runCLIServer(
     cublasHandle_t cublas)
 {
     std::cout << "Transformer CLI server is running. Type 'exit' to quit.\n";
-    
+
     // Allocate memory for decoder input and output
     float *d_decoder_input = nullptr;
     float *d_decoder_output = nullptr;
@@ -147,11 +147,13 @@ void runCLIServer(
     cudaMalloc(&d_current_token_embedding, decoder_input_size);
 
     std::string input;
-    while (true) {
+    while (true)
+    {
         std::cout << "\n> ";
         std::getline(std::cin, input);
 
-        if (input == "exit") {
+        if (input == "exit")
+        {
             break;
         }
 
@@ -163,7 +165,8 @@ void runCLIServer(
         debugPrint("\nGenerating tokens for input: %s\n", input.c_str());
         int seq_len = 1; // Sequence length is 1 for autoregressive decoding
 
-        while (generation_step < config.max_generation_length) {
+        while (generation_step < config.max_generation_length)
+        {
             // Get the embedding for the current token
             getTokenEmbedding(current_token_id, d_token_embeddings, d_current_token_embedding, config);
 
@@ -189,15 +192,12 @@ void runCLIServer(
             auto max_iter = std::max_element(h_logits.begin(), h_logits.end());
             int next_token_id = std::distance(h_logits.begin(), max_iter);
 
-            // Print the generated token
-            std::cout << vocabulary[next_token_id];
-            std::cout.flush(); // Flush to show output immediately
-
             // Append the token to generated sequence
             generated_tokens.push_back(next_token_id);
 
             // Check for stop token
-            if (next_token_id == config.stop_token_id) {
+            if (next_token_id == config.stop_token_id)
+            {
                 break;
             }
 
@@ -207,6 +207,12 @@ void runCLIServer(
 
             // Cleanup
             cudaFree(d_logits);
+        }
+
+        // Print the generated tokens all at once at the end of the generation
+        for (int token_id : generated_tokens)
+        {
+            std::cout << vocabulary[token_id];
         }
         std::cout << std::endl; // New line after generation
     }
@@ -273,12 +279,15 @@ int main(int argc, char *argv[])
                 std::cerr << "Failed to load weights from: " << weights_file << std::endl;
                 return 1;
             }
-            
+
             // Add validation here
-            try {
+            try
+            {
                 validate_weights(weights, config);
                 debugPrint("Successfully loaded and validated GPT-2 model weights\n");
-            } catch (const std::exception& e) {
+            }
+            catch (const std::exception &e)
+            {
                 std::cerr << "Weight validation failed: " << e.what() << std::endl;
                 delete weights;
                 return 1;
@@ -300,9 +309,9 @@ int main(int argc, char *argv[])
     FinalLinearLayer final_linear_layer(config, cublas, cudnn, weights);
 
     // Run the CLI server with all necessary components
-    runCLIServer(vocabulary, 
-                 d_token_embeddings, 
-                 d_positional_encoding, 
+    runCLIServer(vocabulary,
+                 d_token_embeddings,
+                 d_positional_encoding,
                  config,
                  decoder,
                  final_linear_layer,
