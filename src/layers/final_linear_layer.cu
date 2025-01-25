@@ -4,6 +4,8 @@
 #include "utils/softmax.cuh"
 #include "utils/utils.cuh"
 #include <cuda_runtime.h>
+#include <algorithm>
+#include <numeric>
 
 /**
  * @brief CUDA kernel for linear transformation
@@ -27,11 +29,16 @@ __global__ void linearTransformKernel(const float *input, const float *weights, 
     if (row < vocab_size && col < batch_seq_len)
     {
         float sum = 0.0f;
-        // Perform dot product between input and weights
+        // Use FP32 accumulator for better numerical stability
+        #pragma unroll
         for (int k = 0; k < hidden_dim; k++)
         {
-            sum += weights[row * hidden_dim + k] * input[col * hidden_dim + k];
+            // Ensure proper memory access pattern
+            float input_val = input[col * hidden_dim + k];
+            float weight_val = weights[row * hidden_dim + k];
+            sum = fmaf(weight_val, input_val, sum);  // Use fmaf for better precision
         }
+        
         output[col * vocab_size + row] = sum;
     }
 }
@@ -51,26 +58,8 @@ FinalLinearLayer::FinalLinearLayer(const Config &config,
                                    const GPT2Weights *weights)
     : config_(config), cublas_(cublas_handle), cudnn_(cudnn_handle)
 {
-    // Allocate memory for weights
-    allocateWeights();
-
-    if (weights)
-    {
-        // Calculate sizes
-        size_t weights_size = config_.hidden_dim * config_.vocab_size * sizeof(float);
-        size_t bias_size = config_.vocab_size * sizeof(float);
-
-        // Copy weights to device
-        cudaMemcpy(d_linear_weights_, weights->getFinalLayerNormWeight(),
-                   weights_size, cudaMemcpyHostToDevice);
-
-        // Copy bias if available
-        float *bias = weights->getFinalLayerNormBias();
-        if (bias)
-        {
-            cudaMemcpy(d_linear_bias_, bias, bias_size, cudaMemcpyHostToDevice);
-        }
-    }
+    // We don't need to allocate weights here since we'll use token embeddings
+    d_linear_weights_ = nullptr;
 }
 
 /**
@@ -81,7 +70,7 @@ FinalLinearLayer::FinalLinearLayer(const Config &config,
  */
 FinalLinearLayer::~FinalLinearLayer()
 {
-    freeWeights();
+    // No need to free weights since they're managed by token embeddings
 }
 
 /**
@@ -91,8 +80,7 @@ FinalLinearLayer::~FinalLinearLayer()
  */
 void FinalLinearLayer::allocateWeights()
 {
-    size_t weights_size = config_.hidden_dim * config_.vocab_size * sizeof(float);
-    cudaMalloc(&d_linear_weights_, weights_size);
+    // No allocation needed - weights will come from token embeddings
 }
 
 /**
@@ -102,50 +90,36 @@ void FinalLinearLayer::allocateWeights()
  */
 void FinalLinearLayer::freeWeights()
 {
-    if (d_linear_weights_)
-    {
-        cudaFree(d_linear_weights_);
-        d_linear_weights_ = nullptr;
-    }
-
-    if (d_linear_bias_)
-    {
-        cudaFree(d_linear_bias_);
-        d_linear_bias_ = nullptr;
-    }
+    // No freeing needed - weights are managed by token embeddings
 }
 
 /**
- * @brief Performs forward pass through final linear layer
+ * @brief Performs forward pass through final linear layer using token embeddings
  * @param d_input Input hidden states
  * @param d_logits Output logits
  * @param seq_len Sequence length
- *
- * Projects hidden states to vocabulary size using linear transformation,
- * then applies softmax to get probability distribution over vocabulary.
+ * @param d_token_embeddings Token embedding weights to use for linear projection
  */
-void FinalLinearLayer::forward(float *d_input, float *d_logits, int seq_len)
+void FinalLinearLayer::forward(float *d_input, float *d_logits, int seq_len, float *d_token_embeddings)
 {
+    // Use token embeddings as the weight matrix
+    d_linear_weights_ = d_token_embeddings;
+
     // Dimensions for the linear layer
     int vocab_size = config_.vocab_size;
     int batch_seq_len = config_.batch_size * seq_len;
     int hidden_dim = config_.hidden_dim;
 
     // Define block and grid dimensions
-    dim3 blockDim(16, 16); // 256 threads per block
+    dim3 blockDim(16, 16);
     dim3 gridDim(
         (vocab_size + blockDim.x - 1) / blockDim.x,
         (batch_seq_len + blockDim.y - 1) / blockDim.y);
 
-    std::cout << "Dimensions - vocab_size: " << vocab_size
-              << ", batch_seq_len: " << batch_seq_len
-              << ", hidden_dim: " << hidden_dim << std::endl;
-    std::cout << "Grid dims - x: " << gridDim.x << ", y: " << gridDim.y << std::endl;
-
-    // Launch custom linear transformation kernel
+    // Launch linear transformation kernel using token embeddings as weights
     linearTransformKernel<<<gridDim, blockDim>>>(
         d_input,
-        d_linear_weights_,
+        d_token_embeddings,  // Use token embeddings as weights
         d_logits,
         vocab_size,
         batch_seq_len,
@@ -158,13 +132,36 @@ void FinalLinearLayer::forward(float *d_input, float *d_logits, int seq_len)
         std::cerr << "CUDA error in linear transform kernel: " << cudaGetErrorString(error) << std::endl;
     }
 
-    // If bias is available, add it to the output
-    if (d_linear_bias_)
-    {
-        // TODO: Add bias addition kernel call here
-        // This would need to be implemented as a separate CUDA kernel
+    // Debug: Print the output logits before softmax
+    std::vector<float> h_logits(batch_seq_len * vocab_size);
+    cudaMemcpy(h_logits.data(), d_logits, batch_seq_len * vocab_size * sizeof(float), cudaMemcpyDeviceToHost);
+    debugPrint("Logits before softmax: ");
+    for (int i = 0; i < std::min(10, static_cast<int>(h_logits.size())); ++i) {
+        debugPrint("%f ", h_logits[i]);
     }
+    debugPrint("\n");
+
+    // Sort logits and get indexes of the top 5
+    std::vector<int> indices(h_logits.size());
+    std::iota(indices.begin(), indices.end(), 0);
+    std::partial_sort(indices.begin(), indices.begin() + 5, indices.end(),
+                      [&h_logits](int a, int b) { return h_logits[a] > h_logits[b]; });
+
+    // Debug: Print the top 5 logits and their indices
+    debugPrint("Top 5 logits before softmax: ");
+    for (int i = 0; i < 5; ++i) {
+        debugPrint("Index: %d, Logit: %f ", indices[i], h_logits[indices[i]]);
+    }
+    debugPrint("\n");
 
     // Apply softmax to the logits
     applySoftmax(cudnn_, d_logits, d_logits, batch_seq_len, vocab_size);
+
+    // Debug: Print the top logits after softmax
+    cudaMemcpy(h_logits.data(), d_logits, batch_seq_len * vocab_size * sizeof(float), cudaMemcpyDeviceToHost);
+    debugPrint("Top logits after softmax: ");
+    for (int i = 0; i < std::min(10, static_cast<int>(h_logits.size())); ++i) {
+        debugPrint("%f ", h_logits[i]);
+    }
+    debugPrint("\n");
 }

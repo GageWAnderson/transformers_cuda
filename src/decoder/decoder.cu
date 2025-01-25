@@ -181,22 +181,22 @@ void Decoder::forward(float *output,
         debugPrint("Processing layer %d\n", i);
 
         // Store the current input as residual
-        debugPrint("Storing current input as residual for layer %d\n", i);
-        CUDA_CHECK(cudaMemcpy(residual, current_input, batch_size * seq_len * hidden_dim * sizeof(float), 
-                             cudaMemcpyDeviceToDevice));
+        // debugPrint("Storing current input as residual for layer %d\n", i);
+        // CUDA_CHECK(cudaMemcpy(residual, current_input, batch_size * seq_len * hidden_dim * sizeof(float), 
+        //                      cudaMemcpyDeviceToDevice));
 
         // Masked Self-Attention
         debugPrint("Performing Masked Self-Attention for layer %d\n", i);
         self_attention_layers[i]->forward(current_output, current_input, batch_size, seq_len, stream, /*mask=*/true);
 
         // Add & Norm
-        debugPrint("Performing Add & Norm after self-attention for layer %d\n", i);
-        add_tensors(current_output, residual, current_output, batch_size * seq_len * hidden_dim, stream);
+        // debugPrint("Performing Add & Norm after self-attention for layer %d\n", i);
+        // add_tensors(current_output, residual, current_output, batch_size * seq_len * hidden_dim, stream);
 
         // Prepare residual for next sublayer
-        debugPrint("Preparing residual for next sublayer in layer %d\n", i);
-        CUDA_CHECK(cudaMemcpy(residual, current_output, batch_size * seq_len * hidden_dim * sizeof(float), 
-                             cudaMemcpyDeviceToDevice));
+        // debugPrint("Preparing residual for next sublayer in layer %d\n", i);
+        // CUDA_CHECK(cudaMemcpy(residual, current_output, batch_size * seq_len * hidden_dim * sizeof(float), 
+        //                      cudaMemcpyDeviceToDevice));
 
         // Only perform encoder-decoder attention if encoder_output is provided
         if (encoder_output) {
@@ -211,25 +211,21 @@ void Decoder::forward(float *output,
             encoder_attention_layers[i]->forward(current_output, current_output, encoder_output, batch_size, seq_len, stream);
 
             // Add & Norm
-            debugPrint("Performing Add & Norm after encoder-decoder attention for layer %d\n", i);
-            add_tensors(current_output, residual, current_output, batch_size * seq_len * hidden_dim, stream);
+            // debugPrint("Performing Add & Norm after encoder-decoder attention for layer %d\n", i);
+            // add_tensors(current_output, residual, current_output, batch_size * seq_len * hidden_dim, stream);
 
-            debugPrint("Updating residual after encoder-decoder attention for layer %d\n", i);
-            CUDA_CHECK(cudaMemcpy(residual, current_output, batch_size * seq_len * hidden_dim * sizeof(float), 
-                                cudaMemcpyDeviceToDevice));
+            // debugPrint("Updating residual after encoder-decoder attention for layer %d\n", i);
+            // CUDA_CHECK(cudaMemcpy(residual, current_output, batch_size * seq_len * hidden_dim * sizeof(float), 
+            //                     cudaMemcpyDeviceToDevice));
         }
-
-        // Layer Norm 2
-        debugPrint("Applying Layer Norm 2 for layer %d\n", i);
-        layer_norm2_layers[i]->forward(current_output, current_output, batch_size * seq_len, stream);
 
         // Feed Forward
         debugPrint("Performing Feed Forward for layer %d\n", i);
         feed_forward_layers[i]->forward(current_output, current_output, seq_len, stream);
 
         // Add & Norm
-        debugPrint("Performing final Add & Norm for layer %d\n", i);
-        add_tensors(current_output, residual, current_output, batch_size * seq_len * hidden_dim, stream);
+        // debugPrint("Performing final Add & Norm for layer %d\n", i);
+        // add_tensors(current_output, residual, current_output, batch_size * seq_len * hidden_dim, stream);
 
         // Swap pointers for next layer
         debugPrint("Swapping pointers for next layer %d\n", i);

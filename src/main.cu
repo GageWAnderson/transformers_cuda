@@ -178,8 +178,8 @@ void runCLIServer(
             size_t logits_size = config.batch_size * seq_len * config.vocab_size * sizeof(float);
             cudaMalloc(&d_logits, logits_size);
 
-            // Run final linear layer
-            final_linear_layer.forward(d_decoder_output, d_logits, 1);
+            // Run final linear layer with token embeddings
+            final_linear_layer.forward(d_decoder_output, d_logits, 1, d_token_embeddings);
 
             // Copy logits to host
             std::vector<float> h_logits(config.batch_size * seq_len * config.vocab_size);

@@ -310,24 +310,44 @@ bool GPT2Weights::copyWeightToDevice(const std::vector<uint8_t> &data,
                                      float *dest,
                                      Dtype src_dtype)
 {
-    debugPrint("copyWeightToDevice called with offset = %zu, size = %zu, dtype = %d\n", offset, size, static_cast<int>(src_dtype));
+    debugPrint("copyWeightToDevice called with offset = %zu, size = %zu, dtype = %d\n", 
+               offset, size, static_cast<int>(src_dtype));
 
-    // Create host buffer for conversion if needed
-    std::vector<float> host_buffer;
     const void *src_ptr = data.data() + offset - 1;
 
-    switch (src_dtype)
-    {
-    case Dtype::F32:
-    {
+    switch (src_dtype) {
+    case Dtype::F32: {
         debugPrint("Copying F32 data to device\n");
-        CUDA_CHECK(cudaMemcpy(dest, src_ptr, size, cudaMemcpyHostToDevice));
+        
+        // Create temporary host buffer for weight clipping
+        std::vector<float> host_buffer(size / sizeof(float));
+        std::memcpy(host_buffer.data(), src_ptr, size);
+        
+        // Check and clip weights
+        bool clipped = false;
+        for (float& weight : host_buffer) {
+            if (weight > 10.0f) {
+                weight = 1.0f;
+                clipped = true;
+            } else if (weight < -10.0f) {
+                weight = -1.0f;
+                clipped = true;
+            }
+        }
+        
+        if (clipped) {
+            debugPrint("Warning: Some weights were clipped to [-1.0, 1.0] range\n");
+        }
+        
+        // Copy clipped weights to device
+        CUDA_CHECK(cudaMemcpy(dest, host_buffer.data(), size, cudaMemcpyHostToDevice));
         break;
     }
     default:
         debugPrint("Unsupported dtype in copyWeightToDevice\n");
         return false;
     }
+    
     debugPrint("Successfully copied data to device\n");
     return true;
 }
@@ -484,11 +504,11 @@ bool GPT2Weights::loadWeights(const std::vector<std::pair<std::string, TensorInf
 {
     bool success = true;
     size_t total_size = 0;
-    
+
     // Get header size (first 8 bytes contain header length)
     uint64_t header_length = *reinterpret_cast<const uint64_t *>(data.data());
-    size_t header_total_size = 8 + header_length;  // 8 bytes for length + header content
-    
+    size_t header_total_size = 8 + header_length; // 8 bytes for length + header content
+
     for (const auto &[name, info] : tensor_infos)
     {
         size_t size = info.data_offsets.second - info.data_offsets.first;
@@ -503,8 +523,8 @@ bool GPT2Weights::loadWeights(const std::vector<std::pair<std::string, TensorInf
     // Check if the total size matches the data buffer size minus header
     if (total_size != (data.size() - header_total_size))
     {
-        debugPrint("Error: Total size of all tensors %zu does not match data buffer size minus header %zu\n", 
-                  total_size, (data.size() - header_total_size));
+        debugPrint("Error: Total size of all tensors %zu does not match data buffer size minus header %zu\n",
+                   total_size, (data.size() - header_total_size));
         return false;
     }
 

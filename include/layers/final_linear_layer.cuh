@@ -18,7 +18,7 @@ public:
 
     ~FinalLinearLayer();
 
-    void forward(float *d_input, float *d_logits, int seq_len);
+    void forward(float *d_input, float *d_logits, int seq_len, float *d_token_embeddings);
 
 private:
     const Config &config_;
