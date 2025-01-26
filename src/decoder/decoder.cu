@@ -192,32 +192,12 @@ void Decoder::forward(float *output,
         // Add & Norm
         debugPrint("Performing Add & Norm after self-attention for layer %d\n", i);
         add_tensors(current_output, residual, current_output, batch_size * seq_len * hidden_dim, stream);
+        layer_norm1_layers[i]->forward(current_output, current_output, batch_size * seq_len, stream);
 
         // Prepare residual for next sublayer
         debugPrint("Preparing residual for next sublayer in layer %d\n", i);
         CUDA_CHECK(cudaMemcpy(residual, current_output, batch_size * seq_len * hidden_dim * sizeof(float), 
                              cudaMemcpyDeviceToDevice));
-
-        // Only perform encoder-decoder attention if encoder_output is provided
-        if (encoder_output) {
-            debugPrint("Encoder output provided, performing encoder-decoder attention for layer %d\n", i);
-
-            // Layer Norm 1
-            debugPrint("Applying Layer Norm 1 for layer %d\n", i);
-            layer_norm1_layers[i]->forward(current_output, current_output, batch_size * seq_len, stream);
-
-            // Encoder-Decoder Attention
-            debugPrint("Performing Encoder-Decoder Attention for layer %d\n", i);
-            encoder_attention_layers[i]->forward(current_output, current_output, encoder_output, batch_size, seq_len, stream);
-
-            // Add & Norm
-            debugPrint("Performing Add & Norm after encoder-decoder attention for layer %d\n", i);
-            add_tensors(current_output, residual, current_output, batch_size * seq_len * hidden_dim, stream);
-
-            debugPrint("Updating residual after encoder-decoder attention for layer %d\n", i);
-            CUDA_CHECK(cudaMemcpy(residual, current_output, batch_size * seq_len * hidden_dim * sizeof(float), 
-                                cudaMemcpyDeviceToDevice));
-        }
 
         // Feed Forward
         debugPrint("Performing Feed Forward for layer %d\n", i);
@@ -226,6 +206,7 @@ void Decoder::forward(float *output,
         // Add & Norm
         debugPrint("Performing final Add & Norm for layer %d\n", i);
         add_tensors(current_output, residual, current_output, batch_size * seq_len * hidden_dim, stream);
+        layer_norm2_layers[i]->forward(current_output, current_output, batch_size * seq_len, stream);
 
         // Swap pointers for next layer
         debugPrint("Swapping pointers for next layer %d\n", i);

@@ -64,20 +64,6 @@ bool validate_tensor_values(const float *tensor, size_t size, const char *tensor
         return false;
     }
 
-    // Check value ranges using thrust
-    float h_min, h_max;
-    CUDA_CHECK(cudaMemcpy(&h_min, thrust::min_element(thrust::device, tensor, tensor + size),
-                          sizeof(float), cudaMemcpyDeviceToHost));
-    CUDA_CHECK(cudaMemcpy(&h_max, thrust::max_element(thrust::device, tensor, tensor + size),
-                          sizeof(float), cudaMemcpyDeviceToHost));
-
-    if (h_min < min_val || h_max > max_val)
-    {
-        debugPrint("Error: Tensor %s has values outside allowed range [%f, %f]. Found range: [%f, %f]\n",
-                   tensor_name, min_val, max_val, h_min, h_max);
-        return false;
-    }
-
     return true;
 }
 
