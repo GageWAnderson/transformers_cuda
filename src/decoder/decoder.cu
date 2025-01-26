@@ -60,7 +60,7 @@ Decoder::Decoder(const Config &config, const GPT2Weights *weights)
             layer.attn_qkv_weight + hidden_dim * hidden_dim,     // K weight offset
             layer.attn_qkv_weight + 2 * hidden_dim * hidden_dim, // V weight offset
             layer.attn_proj_weight,                              // Output projection weight
-            layer.attn_qkv_bias,                                 // Q bias
+                       layer.attn_qkv_bias,                                 // Q bias
             layer.attn_qkv_bias + hidden_dim,                    // K bias offset
             layer.attn_qkv_bias + 2 * hidden_dim,                // V bias offset
             layer.attn_proj_bias                                 // Output projection bias

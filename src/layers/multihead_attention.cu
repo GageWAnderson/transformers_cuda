@@ -85,7 +85,7 @@ void computeAttentionScores(const float *Q, const float *K, float *attention_sco
 
     if (status != CUBLAS_STATUS_SUCCESS)
     {
-        // Handle error (e.g., throw an exception or print an error message)
+        debugPrint("Error: attention scores cublasSgemmStridedBatched failed with status %d\n", status);
     }
 
     // Verify outputs

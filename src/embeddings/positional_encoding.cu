@@ -1,61 +1,64 @@
 #include "embeddings/positional_encoding.cuh"
+#include "gpt2_weights.cuh"
 #include <cuda_runtime.h>
-#include <cmath>
 
-// Kernel to compute positional encodings
-__global__ void computePositionalEncodingKernel(float* d_pos_encoding, int max_seq_len, int embedding_dim) {
-    int pos = blockIdx.x * blockDim.x + threadIdx.x;
-    int i = blockIdx.y * blockDim.y + threadIdx.y;
+// Kernel to add the position embedding to each token embedding.
+__global__ void wpeForwardKernel(float *d_input_embeddings,
+                                 const float *d_position_embedding,
+                                 int seq_len,
+                                 int batch_size,
+                                 int hidden_dim)
+{
+    int idx = blockDim.x * blockIdx.x + threadIdx.x; 
+    int total_tokens = seq_len * batch_size; // e.g. batch_size * seq_len
 
-    if (pos < max_seq_len && i < embedding_dim) {
-        float angle_rate = 1.0f / powf(10000.0f, (2.0f * (i / 2)) / embedding_dim);
-        float angle = pos * angle_rate;
+    // Flattened size in elements across (batch_size * seq_len * hidden_dim)
+    int total_size = total_tokens * hidden_dim;
 
-        if (i % 2 == 0) {
-            d_pos_encoding[pos * embedding_dim + i] = sinf(angle);
-        } else {
-            d_pos_encoding[pos * embedding_dim + i] = cosf(angle);
-        }
+    if (idx < total_size)
+    {
+        // token_index in [0..(batch_size * seq_len - 1)]
+        int token_index = idx / hidden_dim;  
+        int emb_col     = idx % hidden_dim;
+
+        // For multi-sample batch, each sample chunk is seq_len tokens
+        // position = token_index % seq_len
+        int position = token_index % seq_len;
+
+        // Add the row from GPT2 position embedding
+        d_input_embeddings[idx] += d_position_embedding[position * hidden_dim + emb_col];
     }
 }
 
-void createPositionalEncoding(int max_seq_len, int embedding_dim, float **d_positional_encoding) {
-    size_t size = max_seq_len * embedding_dim * sizeof(float);
-
-    // Allocate memory on the device
-    cudaMalloc((void**)d_positional_encoding, size);
-
-    // Define grid and block dimensions
-    dim3 blockDim(16, 16);
-    dim3 gridDim((max_seq_len + blockDim.x - 1) / blockDim.x,
-                 (embedding_dim + blockDim.y - 1) / blockDim.y);
-
-    // Launch kernel to compute positional encodings
-    computePositionalEncodingKernel<<<gridDim, blockDim>>>(*d_positional_encoding, max_seq_len, embedding_dim);
-
-    // Synchronize to ensure completion
-    cudaDeviceSynchronize();
+WPELayer::WPELayer(const GPT2Weights *weights)
+    : weights_(weights)
+{
+    // Nothing else needed, as we just reference weights_->getPositionEmbedding()
 }
 
-// Kernel to sum embeddings with positional encodings
-__global__ void sumEmbeddingsKernel(float *d_input_embeddings, float *d_positional_encoding, int seq_len, int embedding_dim) {
-    int idx = blockIdx.x * blockDim.x + threadIdx.x;
-    int dim = blockIdx.y * blockDim.y + threadIdx.y;
+void WPELayer::forward(float *d_input_embeddings,
+                       int seq_len,
+                       int batch_size,
+                       cudaStream_t stream)
+{
+    if (seq_len <= 0 || batch_size <= 0) return;
 
-    if (idx < seq_len && dim < embedding_dim) {
-        d_input_embeddings[idx * embedding_dim + dim] += d_positional_encoding[idx * embedding_dim + dim];
-    }
-}
+    int hidden_dim             = weights_->getDims().hidden_dim;
+    const float *d_pos_embeds  = weights_->getPositionEmbedding();
 
-void sumEmbeddingsAndPositionalEncoding(float *d_input_embeddings, float *d_positional_encoding, int seq_len, int embedding_dim) {
-    // Define grid and block dimensions
-    dim3 blockDim(16, 16);
-    dim3 gridDim((seq_len + blockDim.x - 1) / blockDim.x,
-                 (embedding_dim + blockDim.y - 1) / blockDim.y);
+    // For convenience:
+    int total_tokens = batch_size * seq_len;
+    int total_elements = total_tokens * hidden_dim;
 
-    // Launch kernel to sum embeddings
-    sumEmbeddingsKernel<<<gridDim, blockDim>>>(d_input_embeddings, d_positional_encoding, seq_len, embedding_dim);
+    int blockSize = 256;
+    int gridSize  = (total_elements + blockSize - 1) / blockSize;
 
-    // Synchronize to ensure completion
-    cudaDeviceSynchronize();
+    wpeForwardKernel<<<gridSize, blockSize, 0, stream>>>(
+        d_input_embeddings,
+        d_pos_embeds,
+        seq_len,
+        batch_size,
+        hidden_dim
+    );
+    cudaStreamSynchronize(stream);
 }

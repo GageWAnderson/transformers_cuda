@@ -1,11 +1,20 @@
-#ifndef TOKEN_EMBEDDINGS_CUH
-#define TOKEN_EMBEDDINGS_CUH
+#pragma once
 
 #include <vector>
-#include "config.cuh"
 
-void createTokenEmbeddings(const Config &config, float **d_token_embeddings);
-void getInputEmbeddings(const std::vector<int> &token_ids, float *d_token_embeddings, float **d_input_embeddings, const Config &config);
-void getTokenEmbedding(int token_id, float *d_token_embeddings, float *d_output_embedding, const Config &config);
+class GPT2Weights;
 
-#endif // TOKEN_EMBEDDINGS_CUH 
+class WTELayer
+{
+public:
+    explicit WTELayer(const GPT2Weights *weights);
+
+    void forward(const std::vector<int> &host_tokens,
+                 float *d_output,
+                 int batch_size,
+                 int seq_len,
+                 cudaStream_t stream);
+
+private:
+    const GPT2Weights *weights_;
+};

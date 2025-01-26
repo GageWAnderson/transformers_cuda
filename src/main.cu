@@ -128,8 +128,8 @@ cudnnHandle_t initializeCUDNN()
 /**
  * @brief Runs interactive CLI server
  * @param vocabulary Model vocabulary
- * @param d_token_embeddings Token embedding matrix
- * @param d_positional_encoding Positional encoding matrix
+ * @param wte_layer Token embedding layer
+ * @param wpe_layer Positional encoding layer
  * @param config Model configuration
  * @param decoder Decoder object
  * @param final_linear_layer FinalLinearLayer object
@@ -140,8 +140,9 @@ cudnnHandle_t initializeCUDNN()
  */
 void runCLIServer(
     const std::vector<std::string> &vocabulary,
-    float *d_token_embeddings,
-    float *d_positional_encoding,
+    WTELayer &wte_layer,
+    WPELayer &wpe_layer,
+    const GPT2Weights *weights,
     const Config &config,
     Decoder &decoder,
     FinalLinearLayer &final_linear_layer,
@@ -189,15 +190,26 @@ void runCLIServer(
         while (generation_step < config.max_generation_length)
         {
             // Get the embedding for the current token
-            getTokenEmbedding(current_token_id, d_token_embeddings,
-                              d_sequence_embeddings + (current_seq_len - 1) * config.hidden_dim,
-                              config);
+            std::vector<int> current_tokens(1, current_token_id);
+
+            wte_layer.forward(
+                current_tokens,
+                d_sequence_embeddings + (current_seq_len - 1) * config.hidden_dim,
+                config.batch_size,
+                1,
+                stream);
+
+            wpe_layer.forward(
+                d_sequence_embeddings + (current_seq_len - 1) * config.hidden_dim,
+                1, // we only want to embed the newly appended token
+                config.batch_size,
+                stream);
 
             // Run decoder with current sequence length
             decoder.forward(
                 d_decoder_output,
                 d_sequence_embeddings,
-                nullptr, // No encoder output for decoder-only model
+                nullptr,
                 config.batch_size,
                 current_seq_len,
                 stream);
@@ -211,7 +223,7 @@ void runCLIServer(
             cudaMalloc(&d_logits, logits_size);
 
             // Run final linear layer for last token
-            final_linear_layer.forward(d_last_hidden, d_logits, 1, d_token_embeddings);
+            final_linear_layer.forward(d_last_hidden, d_logits, 1, weights->getTokenEmbedding());
 
             // Copy logits to host
             std::vector<float> h_logits(config.batch_size * config.vocab_size);
@@ -278,18 +290,6 @@ int main(int argc, char *argv[])
     curandCreateGenerator(&curand_gen, CURAND_RNG_PSEUDO_DEFAULT);
     curandSetPseudoRandomGeneratorSeed(curand_gen, 1234ULL);
 
-    // Create token embeddings
-    float *d_token_embeddings = nullptr;
-    createTokenEmbeddings(config, &d_token_embeddings);
-
-    // Create positional encodings
-    float *d_positional_encoding = nullptr;
-    createPositionalEncoding(config.max_seq_len, config.embedding_dim, &d_positional_encoding);
-
-    // Print the positional encoding
-    debugPrint("Positional encoding created with dimensions: %d x %d\n",
-               config.max_seq_len, config.embedding_dim);
-
     // If weights file was specified, check architecture and try to load it
     GPT2Weights *weights = nullptr;
     if (!weights_file.empty())
@@ -323,6 +323,12 @@ int main(int argc, char *argv[])
         }
     }
 
+    // Create WTE layer for token embeddings
+    WTELayer wte_layer(weights);
+
+    // Create WPE layer for position embeddings
+    WPELayer wpe_layer(weights);
+
     debugPrint("Weights loaded successfully, loading decoder\n");
     // Initialize Decoder with weights
     Decoder decoder(config, weights);
@@ -333,17 +339,14 @@ int main(int argc, char *argv[])
 
     // Run the CLI server with all necessary components
     runCLIServer(vocabulary,
-                 d_token_embeddings,
-                 d_positional_encoding,
+                 wte_layer,
+                 wpe_layer,
+                 weights,
                  config,
                  decoder,
                  final_linear_layer,
                  cudnn,
                  cublas);
-
-    // Cleanup token embeddings and positional encodings
-    cudaFree(d_token_embeddings);
-    cudaFree(d_positional_encoding);
 
     // Destroy cuBLAS handle
     cublasDestroy(cublas);
