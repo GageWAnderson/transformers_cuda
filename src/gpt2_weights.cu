@@ -321,27 +321,11 @@ bool GPT2Weights::copyWeightToDevice(const std::vector<uint8_t> &data,
     {
         debugPrint("Copying F32 data to device\n");
 
-        // Create temporary host buffer for weight clipping
+        // Create temporary host buffer
         std::vector<float> host_buffer(size / sizeof(float));
         std::memcpy(host_buffer.data(), src_ptr, size);
 
-        // Check and clip weights
-        bool weights_too_large = false;
-        float limit = 10.0f;
-        for (float &weight : host_buffer)
-        {
-            if (weight > limit || weight < -limit)
-            {
-                weights_too_large = true;
-            }
-        }
-
-        if (weights_too_large)
-        {
-            debugPrint("Warning: Some weights were outside of accepted range\n");
-        }
-
-        // Copy clipped weights to device
+        // Copy weights to device
         CUDA_CHECK(cudaMemcpy(dest, host_buffer.data(), size, cudaMemcpyHostToDevice));
         break;
     }

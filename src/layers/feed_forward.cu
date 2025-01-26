@@ -7,13 +7,13 @@
 #include "utils/utils.cuh"
 #include "utils/debug.cuh"
 
-// Activation function (ReLU)
-__global__ void relu_activation(float *data, int size)
+__global__ void gelu_activation(float *data, int size)
 {
     int idx = blockDim.x * blockIdx.x + threadIdx.x;
     if (idx < size)
     {
-        data[idx] = fmaxf(0.0f, data[idx]);
+        float x = data[idx];
+        data[idx] = 0.5f * x * (1.0f + tanhf(0.7978845608f * (x + 0.044715f * x * x * x)));
     }
 }
 
@@ -125,12 +125,12 @@ void FeedForward::forward(float *output, const float *input, int seq_len, cudaSt
     int blocks = (seq_len * intermediate_dim + threads - 1) / threads;
     add_bias<<<blocks, threads, 0, stream>>>(d_intermediate, d_b1, seq_len, intermediate_dim);
 
-    // Apply ReLU activation
-    relu_activation<<<blocks, threads, 0, stream>>>(d_intermediate, seq_len * intermediate_dim);
+    // Apply GeLU activation
+    gelu_activation<<<blocks, threads, 0, stream>>>(d_intermediate, seq_len * intermediate_dim);
 
-    // After ReLU
+    // After GeLU
     cudaMemcpy(h_intermediate, d_intermediate, 5 * sizeof(float), cudaMemcpyDeviceToHost);
-    debugPrint("FeedForward after ReLU (first 5): %f %f %f %f %f\n",
+    debugPrint("FeedForward after GeLU (first 5): %f %f %f %f %f\n",
                h_intermediate[0], h_intermediate[1], h_intermediate[2], h_intermediate[3], h_intermediate[4]);
 
     // Linear Layer 2: output = intermediate * W2 + b2
