@@ -32,6 +32,7 @@
 *.safetensors
 *.gguf
 *.bin
+model_weights/*
 
 # Other common ignore files
 *.log

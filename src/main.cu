@@ -77,7 +77,6 @@ bool parseArguments(int argc, char *argv[], Config &config, std::string &weights
     return true;
 }
 
-// Helper function to load vocabulary
 /**
  * @brief Loads and displays vocabulary
  * @param vocab_file Path to vocabulary file
