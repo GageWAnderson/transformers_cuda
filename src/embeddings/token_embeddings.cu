@@ -83,6 +83,24 @@ void getTokenEmbedding(int token_id, float *d_token_embeddings, float *d_output_
     size_t embedding_size = config.embedding_dim * sizeof(float);
     size_t offset = static_cast<size_t>(token_id) * config.embedding_dim;
 
-    // Copy the embedding vector for the token ID from device to device memory
+    // Copy single token embedding
     cudaMemcpy(d_output_embedding, d_token_embeddings + offset, embedding_size, cudaMemcpyDeviceToDevice);
+}
+
+// Add helper function to get embeddings for a sequence
+void getSequenceEmbeddings(const std::vector<int> &token_ids, float *d_token_embeddings, 
+                          float *d_sequence_embeddings, const Config &config)
+{
+    int seq_len = token_ids.size();
+    size_t embedding_size = config.embedding_dim * sizeof(float);
+
+    for (int i = 0; i < seq_len; i++) {
+        size_t offset = static_cast<size_t>(token_ids[i]) * config.embedding_dim;
+        cudaMemcpy(
+            d_sequence_embeddings + i * config.embedding_dim,
+            d_token_embeddings + offset,
+            embedding_size,
+            cudaMemcpyDeviceToDevice
+        );
+    }
 }

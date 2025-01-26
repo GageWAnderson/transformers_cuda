@@ -131,12 +131,14 @@ void runCLIServer(
 {
     std::cout << "Transformer CLI server is running. Type 'exit' to quit.\n";
 
-    // Allocate memory for decoder input and output
-    float *d_decoder_input = nullptr;
+    // Allocate memory for the full sequence capacity upfront
+    float *d_sequence_embeddings = nullptr;
+    size_t max_sequence_size = config.max_generation_length * config.batch_size * config.hidden_dim * sizeof(float);
+    cudaMalloc(&d_sequence_embeddings, max_sequence_size);
+    
+    // Allocate memory for decoder output (same size as sequence for safety)
     float *d_decoder_output = nullptr;
-    size_t decoder_input_size = config.batch_size * config.hidden_dim * sizeof(float);
-    cudaMalloc(&d_decoder_input, decoder_input_size);
-    cudaMalloc(&d_decoder_output, decoder_input_size);
+    cudaMalloc(&d_decoder_output, max_sequence_size);
 
     // Create CUDA stream
     cudaStream_t stream;
@@ -144,6 +146,7 @@ void runCLIServer(
 
     // Allocate memory for the current token embedding
     float *d_current_token_embedding = nullptr;
+    size_t decoder_input_size = config.batch_size * config.hidden_dim * sizeof(float);
     cudaMalloc(&d_current_token_embedding, decoder_input_size);
 
     std::string input;
@@ -161,38 +164,47 @@ void runCLIServer(
         std::vector<int> generated_tokens;
         int current_token_id = config.start_token_id;
         int generation_step = 0;
+        int current_seq_len = 1;  // Track growing sequence length
 
         debugPrint("\nGenerating tokens for input: %s\n", input.c_str());
-        int seq_len = 1; // Sequence length is 1 for autoregressive decoding
 
         while (generation_step < config.max_generation_length)
         {
             // Get the embedding for the current token
-            getTokenEmbedding(current_token_id, d_token_embeddings, d_current_token_embedding, config);
+            getTokenEmbedding(current_token_id, d_token_embeddings, 
+                            d_sequence_embeddings + (current_seq_len - 1) * config.hidden_dim, 
+                            config);
 
-            // Prepare decoder input
-            cudaMemcpy(d_decoder_input, d_current_token_embedding, decoder_input_size, cudaMemcpyDeviceToDevice);
+            // Run decoder with current sequence length
+            decoder.forward(
+                d_decoder_output,
+                d_sequence_embeddings,
+                nullptr,  // No encoder output for decoder-only model
+                config.batch_size,
+                current_seq_len,
+                stream
+            );
 
-            // Run decoder
-            decoder.forward(d_decoder_output, d_decoder_input, nullptr, config.batch_size, seq_len, stream);
-
-            // Allocate memory for logits
+            // Get logits for last token position only
+            float *d_last_hidden = d_decoder_output + (current_seq_len - 1) * config.hidden_dim;
+            
+            // Allocate memory for logits of last token
             float *d_logits = nullptr;
-            size_t logits_size = config.batch_size * seq_len * config.vocab_size * sizeof(float);
+            size_t logits_size = config.batch_size * config.vocab_size * sizeof(float);
             cudaMalloc(&d_logits, logits_size);
 
-            // Run final linear layer with token embeddings
-            final_linear_layer.forward(d_decoder_output, d_logits, 1, d_token_embeddings);
+            // Run final linear layer for last token
+            final_linear_layer.forward(d_last_hidden, d_logits, 1, d_token_embeddings);
 
             // Copy logits to host
-            std::vector<float> h_logits(config.batch_size * seq_len * config.vocab_size);
+            std::vector<float> h_logits(config.batch_size * config.vocab_size);
             cudaMemcpy(h_logits.data(), d_logits, logits_size, cudaMemcpyDeviceToHost);
 
             // Select next token
             auto max_iter = std::max_element(h_logits.begin(), h_logits.end());
             int next_token_id = std::distance(h_logits.begin(), max_iter);
 
-            // Append the token to generated sequence
+            // Append the token
             generated_tokens.push_back(next_token_id);
 
             // Check for stop token
@@ -201,8 +213,9 @@ void runCLIServer(
                 break;
             }
 
-            // Update current token for next iteration
+            // Update for next iteration
             current_token_id = next_token_id;
+            current_seq_len++;
             generation_step++;
 
             // Cleanup
@@ -220,7 +233,7 @@ void runCLIServer(
     // Cleanup
     cudaStreamSynchronize(stream);
     cudaStreamDestroy(stream);
-    cudaFree(d_decoder_input);
+    cudaFree(d_sequence_embeddings);
     cudaFree(d_decoder_output);
     cudaFree(d_current_token_embedding);
 }
