@@ -396,7 +396,7 @@ bool GPT2Weights::loadTensor(const std::string &name,
 
     // Handle layer-specific weights
     int layer_num = getLayerNum(name);
-    if (layer_num >= 0 && layer_num < dims.num_layers)
+    if (layer_num >= 0 && layer_num < this->dims.num_layers)
     {
         LayerWeights &layer = layers[layer_num];
 

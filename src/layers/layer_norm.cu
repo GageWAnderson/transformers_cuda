@@ -56,16 +56,6 @@ __global__ void fused_layer_norm_kernel(
     int tid = threadIdx.x;
     int seq_idx = blockIdx.x;
     
-    // Debug prints for first sequence only
-    if (seq_idx == 0 && tid == 0) {
-        printf("LayerNorm input (first 5): %f %f %f %f %f\n", 
-               input[0], input[1], input[2], input[3], input[4]);
-        printf("LayerNorm gamma (first 5): %f %f %f %f %f\n",
-               gamma[0], gamma[1], gamma[2], gamma[3], gamma[4]);
-        printf("LayerNorm beta (first 5): %f %f %f %f %f\n",
-               beta[0], beta[1], beta[2], beta[3], beta[4]);
-    }
-    
     // Each block handles one sequence
     float sum = 0.0f;
     float sum_sq = 0.0f;
@@ -85,9 +75,6 @@ __global__ void fused_layer_norm_kernel(
         float variance = (sum_sq / hidden_dim) - (mean_val * mean_val);
         shared_data[0] = mean_val;
         shared_data[1] = variance;
-        if (seq_idx == 0) {
-            printf("LayerNorm mean: %f, variance: %f\n", mean_val, variance);
-        }
     }
     __syncthreads();
     
@@ -100,12 +87,6 @@ __global__ void fused_layer_norm_kernel(
         float norm_val = (val - mean_val) * rsqrtf(variance + epsilon);
         output[seq_idx * hidden_dim + i] = norm_val * gamma[i] + beta[i];
     }
-    
-    // Debug output values
-    if (seq_idx == 0 && tid == 0) {
-        printf("LayerNorm output (first 5): %f %f %f %f %f\n",
-               output[0], output[1], output[2], output[3], output[4]);
-    }
 }
 
 void LayerNorm::forward(float* output, const float* input, int seq_len, cudaStream_t stream) {
@@ -114,11 +95,7 @@ void LayerNorm::forward(float* output, const float* input, int seq_len, cudaStre
     
     const int BLOCK_SIZE = 256;
     const int shared_mem_size = 2 * sizeof(float); // For mean and variance
-    
-    // Validate pointers and parameters
-    if (output == nullptr || input == nullptr || gamma == nullptr || beta == nullptr) {
-        throw std::runtime_error("Null pointer passed to layer norm forward");
-    }
+
     
     if (seq_len <= 0 || hidden_dim <= 0) {
         throw std::runtime_error("Invalid dimensions in layer norm forward");

@@ -46,10 +46,10 @@
     } while (0)
 
 // Add the declaration of add_tensors function
-void add_tensors(const float* a, const float* b, float* c, int size, cudaStream_t stream);
+void add_tensors(const float *a, const float *b, float *c, int size, cudaStream_t stream);
 
 // Add these declarations
-bool validate_tensor_values(const float* tensor, size_t size, const char* tensor_name, float min_val = -10.0f, float max_val = 10.0f);
+bool validate_tensor_values(const float *tensor, size_t size, const char *tensor_name, float min_val = -10.0f, float max_val = 10.0f);
 void validate_weights(const GPT2Weights *weights, const Config &config);
-
-#endif // UTILS_CUH 
+void scale_tensor(float *tensor, float scale, int size, cudaStream_t stream);
+#endif // UTILS_CUH

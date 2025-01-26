@@ -6,7 +6,22 @@
 #include "utils/debug.cuh"
 #include "config.cuh"
 
-// Kernel for element-wise addition
+__global__ void scale_tensor_kernel(float *tensor, float scale, int size)
+{
+    int idx = blockIdx.x * blockDim.x + threadIdx.x;
+    if (idx < size)
+    {
+        tensor[idx] *= scale;
+    }
+}
+
+void scale_tensor(float *tensor, float scale, int size, cudaStream_t stream)
+{
+    int block_size = 256;
+    int num_blocks = (size + block_size - 1) / block_size;
+    scale_tensor_kernel<<<num_blocks, block_size, 0, stream>>>(tensor, scale, size);
+}
+
 __global__ void add_tensors_kernel(const float *a, const float *b, float *c, int size)
 {
     int idx = blockIdx.x * blockDim.x + threadIdx.x;
