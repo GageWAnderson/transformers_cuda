@@ -143,11 +143,6 @@ void runCLIServer(
     cudaStream_t stream;
     cudaStreamCreate(&stream);
 
-    // Allocate memory for the current token embedding
-    float *d_current_token_embedding = nullptr;
-    size_t decoder_input_size = config.batch_size * config.hidden_dim * sizeof(float);
-    cudaMalloc(&d_current_token_embedding, decoder_input_size);
-
     std::string input;
     while (true)
     {
@@ -159,11 +154,15 @@ void runCLIServer(
             break;
         }
 
+        // Reset sequence embeddings buffer for new input
+        cudaMemset(d_sequence_embeddings, 0, max_sequence_size);
+        cudaMemset(d_decoder_output, 0, max_sequence_size);
+        
         // Reset generation variables for new input
         std::vector<int> generated_tokens;
         int current_token_id = config.start_token_id;
         int generation_step = 0;
-        int current_seq_len = 1;  // Track growing sequence length
+        int current_seq_len = 1;
 
         debugPrint("\nGenerating tokens for input: %s\n", input.c_str());
 
@@ -217,7 +216,6 @@ void runCLIServer(
             current_seq_len++;
             generation_step++;
 
-            // Cleanup
             cudaFree(d_logits);
         }
 
@@ -229,12 +227,10 @@ void runCLIServer(
         std::cout << std::endl; // New line after generation
     }
 
-    // Cleanup
     cudaStreamSynchronize(stream);
     cudaStreamDestroy(stream);
     cudaFree(d_sequence_embeddings);
     cudaFree(d_decoder_output);
-    cudaFree(d_current_token_embedding);
 }
 
 int main(int argc, char *argv[])

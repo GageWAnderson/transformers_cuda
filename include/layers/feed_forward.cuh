@@ -2,6 +2,7 @@
 #define FEED_FORWARD_H
 
 #include <cuda_runtime.h>
+#include <cublas_v2.h>
 
 class FeedForward
 {
@@ -22,6 +23,10 @@ public:
     ~FeedForward();
 
     void forward(float *output, const float *input, int seq_len, cudaStream_t stream);
+    void reset(cudaStream_t stream, cublasHandle_t cublas_handle)
+    {
+        cublasSetStream(cublas_handle, stream);
+    }
 };
 
 #endif // FEED_FORWARD_H

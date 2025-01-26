@@ -177,6 +177,7 @@ void Decoder::forward(float *output,
     debugPrint("Starting decoder forward pass with num_layers: %d\n", num_layers);
     for (int i = 0; i < num_layers; ++i)
     {
+
         debugPrint("Processing layer %d\n", i);
 
         // Store the current input as residual

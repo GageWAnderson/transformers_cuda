@@ -310,35 +310,37 @@ bool GPT2Weights::copyWeightToDevice(const std::vector<uint8_t> &data,
                                      float *dest,
                                      Dtype src_dtype)
 {
-    debugPrint("copyWeightToDevice called with offset = %zu, size = %zu, dtype = %d\n", 
+    debugPrint("copyWeightToDevice called with offset = %zu, size = %zu, dtype = %d\n",
                offset, size, static_cast<int>(src_dtype));
 
     const void *src_ptr = data.data() + offset - 1;
 
-    switch (src_dtype) {
-    case Dtype::F32: {
+    switch (src_dtype)
+    {
+    case Dtype::F32:
+    {
         debugPrint("Copying F32 data to device\n");
-        
+
         // Create temporary host buffer for weight clipping
         std::vector<float> host_buffer(size / sizeof(float));
         std::memcpy(host_buffer.data(), src_ptr, size);
-        
+
         // Check and clip weights
-        bool clipped = false;
-        for (float& weight : host_buffer) {
-            if (weight > 10.0f) {
-                weight = 1.0f;
-                clipped = true;
-            } else if (weight < -10.0f) {
-                weight = -1.0f;
-                clipped = true;
+        bool weights_too_large = false;
+        float limit = 10.0f;
+        for (float &weight : host_buffer)
+        {
+            if (weight > limit || weight < -limit)
+            {
+                weights_too_large = true;
             }
         }
-        
-        if (clipped) {
-            debugPrint("Warning: Some weights were clipped to [-1.0, 1.0] range\n");
+
+        if (weights_too_large)
+        {
+            debugPrint("Warning: Some weights were outside of accepted range\n");
         }
-        
+
         // Copy clipped weights to device
         CUDA_CHECK(cudaMemcpy(dest, host_buffer.data(), size, cudaMemcpyHostToDevice));
         break;
@@ -347,7 +349,7 @@ bool GPT2Weights::copyWeightToDevice(const std::vector<uint8_t> &data,
         debugPrint("Unsupported dtype in copyWeightToDevice\n");
         return false;
     }
-    
+
     debugPrint("Successfully copied data to device\n");
     return true;
 }
