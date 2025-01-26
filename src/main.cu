@@ -14,7 +14,7 @@
 #include "decoder/decoder.cuh"
 #include "cublas_v2.h"
 #include "curand.h"
-#include "layers/final_linear_layer.cuh"
+// #include "layers/final_linear_layer.cuh"
 #include "utils/debug.cuh"
 #include "utils/load_weights.cuh"
 #include "gpt2_weights.cuh"
@@ -42,6 +42,42 @@ void printGeneratedTokens(const std::vector<int> &tokens, const std::vector<std:
         std::cout << token;
     }
     std::cout << std::endl; // New line after generation
+}
+
+/**
+ * @brief CUDA kernel for linear transformation
+ * @param input Input tensor
+ * @param weights Weight matrix
+ * @param output Output tensor
+ * @param vocab_size Size of vocabulary
+ * @param batch_seq_len Combined batch and sequence length
+ * @param hidden_dim Hidden dimension size
+ *
+ * Performs matrix multiplication between input and weights to produce logits.
+ * Each thread computes one element of the output matrix.
+ */
+__global__ void linearTransformKernel(const float *input, const float *weights, float *output,
+                                      int vocab_size, int batch_seq_len, int hidden_dim)
+{
+    // Calculate global thread indices
+    int row = blockIdx.x * blockDim.x + threadIdx.x; // For vocab_size dimension
+    int col = blockIdx.y * blockDim.y + threadIdx.y; // For batch_seq_len dimension
+
+    if (row < vocab_size && col < batch_seq_len)
+    {
+        float sum = 0.0f;
+// Use FP32 accumulator for better numerical stability
+#pragma unroll
+        for (int k = 0; k < hidden_dim; k++)
+        {
+            // Ensure proper memory access pattern
+            float input_val = input[col * hidden_dim + k];
+            float weight_val = weights[row * hidden_dim + k];
+            sum = fmaf(weight_val, input_val, sum); // Use fmaf for better precision
+        }
+
+        output[col * vocab_size + row] = sum;
+    }
 }
 
 /**
@@ -132,7 +168,6 @@ cudnnHandle_t initializeCUDNN()
  * @param wpe_layer Positional encoding layer
  * @param config Model configuration
  * @param decoder Decoder object
- * @param final_linear_layer FinalLinearLayer object
  * @param cudnn cuDNN handle
  * @param cublas cuBLAS handle
  *
@@ -145,7 +180,6 @@ void runCLIServer(
     const GPT2Weights *weights,
     const Config &config,
     Decoder &decoder,
-    FinalLinearLayer &final_linear_layer,
     cudnnHandle_t cudnn,
     cublasHandle_t cublas)
 {
@@ -187,6 +221,11 @@ void runCLIServer(
 
         debugPrint("\nGenerating tokens for input: %s\n", input.c_str());
 
+        // Allocate memory for logits
+        float *d_logits = nullptr;
+        size_t logits_size = config.batch_size * config.vocab_size * sizeof(float);
+        cudaMalloc(&d_logits, logits_size);
+
         while (generation_step < config.max_generation_length)
         {
             // Get the embedding for the current token
@@ -214,20 +253,37 @@ void runCLIServer(
                 current_seq_len,
                 stream);
 
-            // Get logits for last token position only
             float *d_last_hidden = d_decoder_output + (current_seq_len - 1) * config.hidden_dim;
 
-            // Allocate memory for logits of last token
-            float *d_logits = nullptr;
-            size_t logits_size = config.batch_size * config.vocab_size * sizeof(float);
-            cudaMalloc(&d_logits, logits_size);
+            // 1) Matrix multiply: (batch_seq_len=1) x (hidden_dim) times (hidden_dim) x (vocab_size)
+            dim3 blockDim(16, 16);
+            dim3 gridDim(
+                (config.vocab_size + blockDim.x - 1) / blockDim.x,
+                (config.batch_size /* * seq_len */ + blockDim.y - 1) / blockDim.y);
 
-            // Run final linear layer for last token
-            final_linear_layer.forward(d_last_hidden, d_logits, 1, weights->getTokenEmbedding());
+            linearTransformKernel<<<gridDim, blockDim>>>(
+                d_last_hidden,
+                weights->getTokenEmbedding(),
+                d_logits,
+                config.vocab_size,
+                config.batch_size * 1,
+                config.hidden_dim);
 
-            // Copy logits to host
+            cudaError_t error = cudaGetLastError();
+            if (error != cudaSuccess)
+            {
+                std::cerr << "CUDA error in linear transform kernel: "
+                          << cudaGetErrorString(error) << std::endl;
+            }
+
+            // 2) Apply softmax to d_logits
+            applySoftmax(cudnn, d_logits, d_logits, config.batch_size * 1, config.vocab_size);
+
+            // Copy logits to host and select the max element, etc.
             std::vector<float> h_logits(config.batch_size * config.vocab_size);
-            cudaMemcpy(h_logits.data(), d_logits, logits_size, cudaMemcpyDeviceToHost);
+            cudaMemcpy(h_logits.data(), d_logits,
+                       config.batch_size * config.vocab_size * sizeof(float),
+                       cudaMemcpyDeviceToHost);
 
             // Select next token
             auto max_iter = std::max_element(h_logits.begin(), h_logits.end());
@@ -246,9 +302,10 @@ void runCLIServer(
             current_token_id = next_token_id;
             current_seq_len++;
             generation_step++;
-
-            cudaFree(d_logits);
         }
+
+        // Free memory for logits
+        cudaFree(d_logits);
 
         // Print the generated tokens all at once at the end of the generation
         printGeneratedTokens(generated_tokens, vocabulary);
@@ -333,20 +390,16 @@ int main(int argc, char *argv[])
     // Initialize Decoder with weights
     Decoder decoder(config, weights);
 
-    // Create and initialize the FinalLinearLayer with weights
-    debugPrint("Initializing FinalLinearLayer\n");
-    FinalLinearLayer final_linear_layer(config, cublas, cudnn, weights);
-
     // Run the CLI server with all necessary components
-    runCLIServer(vocabulary,
-                 wte_layer,
-                 wpe_layer,
-                 weights,
-                 config,
-                 decoder,
-                 final_linear_layer,
-                 cudnn,
-                 cublas);
+    runCLIServer(
+        vocabulary,
+        wte_layer,
+        wpe_layer,
+        weights,
+        config,
+        decoder,
+        cudnn,
+        cublas);
 
     // Destroy cuBLAS handle
     cublasDestroy(cublas);
