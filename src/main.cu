@@ -20,10 +20,30 @@
 #include "gpt2_weights.cuh"
 #include <fstream>
 
-// Function to display usage instructions
 void printUsage();
 
-// Helper function to load configuration
+/**
+ * @brief Prints the generated tokens, rendering \u0120 as a space
+ * @param tokens Vector of token IDs
+ * @param vocabulary Model vocabulary
+ *
+ * Iterates through the generated tokens and prints them, replacing \u0120 with a space.
+ */
+void printGeneratedTokens(const std::vector<int> &tokens, const std::vector<std::string> &vocabulary)
+{
+    for (int token_id : tokens)
+    {
+        std::string token = vocabulary[token_id];
+        size_t pos = 0;
+        while ((pos = token.find("\u0120", pos)) != std::string::npos)
+        {
+            token.replace(pos, 1, " ");
+        }
+        std::cout << token;
+    }
+    std::cout << std::endl; // New line after generation
+}
+
 /**
  * @brief Loads configuration from file
  * @param config Reference to Config object
@@ -134,7 +154,7 @@ void runCLIServer(
     float *d_sequence_embeddings = nullptr;
     size_t max_sequence_size = config.max_generation_length * config.batch_size * config.hidden_dim * sizeof(float);
     cudaMalloc(&d_sequence_embeddings, max_sequence_size);
-    
+
     // Allocate memory for decoder output (same size as sequence for safety)
     float *d_decoder_output = nullptr;
     cudaMalloc(&d_decoder_output, max_sequence_size);
@@ -157,7 +177,7 @@ void runCLIServer(
         // Reset sequence embeddings buffer for new input
         cudaMemset(d_sequence_embeddings, 0, max_sequence_size);
         cudaMemset(d_decoder_output, 0, max_sequence_size);
-        
+
         // Reset generation variables for new input
         std::vector<int> generated_tokens;
         int current_token_id = config.start_token_id;
@@ -169,23 +189,22 @@ void runCLIServer(
         while (generation_step < config.max_generation_length)
         {
             // Get the embedding for the current token
-            getTokenEmbedding(current_token_id, d_token_embeddings, 
-                            d_sequence_embeddings + (current_seq_len - 1) * config.hidden_dim, 
-                            config);
+            getTokenEmbedding(current_token_id, d_token_embeddings,
+                              d_sequence_embeddings + (current_seq_len - 1) * config.hidden_dim,
+                              config);
 
             // Run decoder with current sequence length
             decoder.forward(
                 d_decoder_output,
                 d_sequence_embeddings,
-                nullptr,  // No encoder output for decoder-only model
+                nullptr, // No encoder output for decoder-only model
                 config.batch_size,
                 current_seq_len,
-                stream
-            );
+                stream);
 
             // Get logits for last token position only
             float *d_last_hidden = d_decoder_output + (current_seq_len - 1) * config.hidden_dim;
-            
+
             // Allocate memory for logits of last token
             float *d_logits = nullptr;
             size_t logits_size = config.batch_size * config.vocab_size * sizeof(float);
@@ -220,11 +239,7 @@ void runCLIServer(
         }
 
         // Print the generated tokens all at once at the end of the generation
-        for (int token_id : generated_tokens)
-        {
-            std::cout << vocabulary[token_id];
-        }
-        std::cout << std::endl; // New line after generation
+        printGeneratedTokens(generated_tokens, vocabulary);
     }
 
     cudaStreamSynchronize(stream);

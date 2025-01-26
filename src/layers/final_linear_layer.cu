@@ -165,6 +165,15 @@ void FinalLinearLayer::forward(float *d_input, float *d_logits, int seq_len, flo
     }
     debugPrint("\n");
 
+    // Verify the sum of the logits after softmax
+    for (int i = 0; i < batch_seq_len; ++i) {
+        float sum = 0.0f;
+        for (int j = 0; j < vocab_size; ++j) {
+            sum += h_logits[i * vocab_size + j];
+        }
+        debugPrint("Sum of logits for sequence %d: %f\n", i, sum);
+    }
+
     // Sort logits after softmax and get indexes of the top 5
     std::partial_sort(indices.begin(), indices.begin() + 5, indices.end(),
                       [&h_logits](int a, int b) { return h_logits[a] > h_logits[b]; });

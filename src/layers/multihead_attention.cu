@@ -88,11 +88,6 @@ void computeAttentionScores(const float *Q, const float *K, float *attention_sco
         // Handle error (e.g., throw an exception or print an error message)
     }
 
-    // Scale the attention scores after multiplication
-    int total_elements = batch_count * m * n;
-    scaleKernel<<<(total_elements + 255) / 256, 256, 0, stream>>>(
-        attention_scores, total_elements, scale);
-
     // Verify outputs
     cudaMemcpy(h_check, attention_scores, 5 * sizeof(float), cudaMemcpyDeviceToHost);
     debugPrint("Attention scores after scaling: %f %f %f %f %f\n",
@@ -154,23 +149,31 @@ void applySoftmaxToAttentionScores(float *attention_scores,
     // Create tensor descriptor
     cudnnTensorDescriptor_t tensor_desc;
     cudnnCreateTensorDescriptor(&tensor_desc);
+    
+    // Update the tensor descriptor configuration
+    // Change from NCHW to NBHW format where:
+    // N = batch_size * num_heads (batch and heads combined)
+    // C = 1 (we want softmax across the whole sequence)
+    // H = seq_len (rows - queries)
+    // W = seq_len (columns - keys)
     cudnnSetTensor4dDescriptor(
         tensor_desc,
         CUDNN_TENSOR_NCHW,
         CUDNN_DATA_FLOAT,
-        batch_size * num_heads,
-        1,
-        seq_len,
-        seq_len);
+        batch_size * num_heads,  // N: combine batch and heads
+        1,                       // C: single channel
+        seq_len,                 // H: sequence length (queries)
+        seq_len                  // W: sequence length (keys)
+    );
 
     const float alpha = 1.0f;
     const float beta = 0.0f;
 
-    // Apply softmax
+    // Apply softmax along the last dimension (keys)
     cudnnStatus_t status = cudnnSoftmaxForward(
         cudnn_handle,
         CUDNN_SOFTMAX_ACCURATE,
-        CUDNN_SOFTMAX_MODE_CHANNEL, // Apply softmax across the last dimension
+        CUDNN_SOFTMAX_MODE_INSTANCE,
         &alpha,
         tensor_desc,
         attention_scores,
@@ -190,6 +193,19 @@ void applySoftmaxToAttentionScores(float *attention_scores,
     cudaMemcpy(h_check, attention_scores, 5 * sizeof(float), cudaMemcpyDeviceToHost);
     debugPrint("Post-softmax scores: %f %f %f %f %f\n",
                h_check[0], h_check[1], h_check[2], h_check[3], h_check[4]);
+
+    // Add verification of softmax properties
+    float y_check[seq_len * seq_len];
+    for (int i = 0; i < std::min(2, batch_size * num_heads); i++) {  // Check first 2 heads
+        cudaMemcpy(y_check, attention_scores + i * seq_len * seq_len, 
+                   seq_len * seq_len * sizeof(float), cudaMemcpyDeviceToHost);
+        float sum = 0;
+        debugPrint("Head %d softmax values: ", i);
+        for (int j = 0; j < seq_len * seq_len; j++) {
+            sum += y_check[j];
+        }
+        debugPrint("Sum of all values: %f\n", sum);
+    }
 }
 
 void computeAttentionOutput(const float *attention_scores, const float *V, float *attention_output,

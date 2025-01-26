@@ -186,9 +186,6 @@ void Decoder::forward(float *output,
         throw std::runtime_error("Input must be a device pointer");
     }
 
-    // Calculate residual scaling factor (1/sqrt(hidden_dim))
-    float residual_scale = 1.0f / sqrt(static_cast<float>(hidden_dim));
-
     debugPrint("Starting decoder forward pass with num_layers: %d\n", num_layers);
     for (int i = 0; i < num_layers; ++i)
     {
@@ -204,9 +201,8 @@ void Decoder::forward(float *output,
         debugPrint("Performing Masked Self-Attention for layer %d\n", i);
         self_attention_layers[i]->forward(current_output, current_input, batch_size, seq_len, stream, /*mask=*/true);
 
-        // Add & Norm with scaling
+        // Add & Norm
         debugPrint("Performing Add & Norm after self-attention for layer %d\n", i);
-        scale_tensor(residual, residual_scale, batch_size * seq_len * hidden_dim, stream);
         add_tensors(current_output, residual, current_output, batch_size * seq_len * hidden_dim, stream);
         layer_norm1_layers[i]->forward(current_output, current_output, batch_size * seq_len, stream);
 
@@ -219,14 +215,12 @@ void Decoder::forward(float *output,
         debugPrint("Performing Feed Forward for layer %d\n", i);
         feed_forward_layers[i]->forward(current_output, current_output, seq_len, stream);
 
-        // Add & Norm with scaling
+        // Add & Norm
         debugPrint("Performing final Add & Norm for layer %d\n", i);
-        scale_tensor(residual, residual_scale, batch_size * seq_len * hidden_dim, stream);
         add_tensors(current_output, residual, current_output, batch_size * seq_len * hidden_dim, stream);
         layer_norm2_layers[i]->forward(current_output, current_output, batch_size * seq_len, stream);
 
         // Swap pointers for next layer
-        debugPrint("Swapping pointers for next layer %d\n", i);
         std::swap(current_input, current_output);
     }
 
