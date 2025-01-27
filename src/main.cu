@@ -160,6 +160,68 @@ cudnnHandle_t initializeCUDNN()
     return cudnn;
 }
 
+// Helper function to apply temperature to logits
+/**
+ * @brief Applies temperature to logits
+ * @param logits Vector of logits
+ * @param vocab_size Size of vocabulary
+ * @param temperature Temperature value
+ *
+ * Adjusts logits by dividing by the temperature.
+ */
+void applyTemperature(std::vector<float> &logits, int vocab_size, float temperature)
+{
+    for (int i = 0; i < vocab_size; i++)
+    {
+        logits[i] /= temperature;
+    }
+}
+
+/**
+ * @brief Selects the next token based on temperature-adjusted logits
+ * @param logits Vector of logits
+ * @param vocab_size Size of vocabulary
+ * @param temperature Temperature value
+ * @return Selected token ID
+ *
+ * Applies temperature to logits, converts to probabilities, and samples the next token.
+ */
+int selectNextToken(const std::vector<float> &logits, int vocab_size, float temperature)
+{
+    std::vector<float> adjusted_logits = logits;
+
+    // Apply temperature to logits
+    applyTemperature(adjusted_logits, vocab_size, temperature);
+
+    // Convert to probabilities
+    float sum = 0.0f;
+    for (int i = 0; i < vocab_size; i++)
+    {
+        adjusted_logits[i] = exp(adjusted_logits[i]);
+        sum += adjusted_logits[i];
+    }
+    for (int i = 0; i < vocab_size; i++)
+    {
+        adjusted_logits[i] /= sum;
+    }
+
+    // Sample from the distribution
+    float r = static_cast<float>(rand()) / static_cast<float>(RAND_MAX);
+    float cdf = 0.0f;
+    int next_token_id = 0;
+    for (int i = 0; i < vocab_size; i++)
+    {
+        cdf += adjusted_logits[i];
+        if (r < cdf)
+        {
+            next_token_id = i;
+            break;
+        }
+    }
+
+    return next_token_id;
+}
+
 // Helper function to run CLI server loop
 /**
  * @brief Runs interactive CLI server
@@ -185,14 +247,11 @@ void runCLIServer(
 {
     std::cout << "Transformer CLI server is running. Type 'exit' to quit.\n";
 
-    // Allocate memory for the full sequence capacity upfront
+    // Initialize pointers to nullptr
     float *d_sequence_embeddings = nullptr;
-    size_t max_sequence_size = config.max_generation_length * config.batch_size * config.hidden_dim * sizeof(float);
-    cudaMalloc(&d_sequence_embeddings, max_sequence_size);
-
-    // Allocate memory for decoder output (same size as sequence for safety)
     float *d_decoder_output = nullptr;
-    cudaMalloc(&d_decoder_output, max_sequence_size);
+    float *d_logits = nullptr;
+    size_t current_buffer_size = 0;
 
     // Create CUDA stream
     cudaStream_t stream;
@@ -209,42 +268,110 @@ void runCLIServer(
             break;
         }
 
-        // Reset sequence embeddings buffer for new input
-        cudaMemset(d_sequence_embeddings, 0, max_sequence_size);
-        cudaMemset(d_decoder_output, 0, max_sequence_size);
+        // Tokenize the input text
+        std::vector<int> input_tokens = tokenize(input, vocabulary);
+        std::vector<int> context_window;
 
-        // Reset generation variables for new input
-        std::vector<int> generated_tokens;
-        int current_token_id = config.start_token_id;
+        if (config.start_token_id >= 0)
+        {
+            context_window.push_back(config.start_token_id);
+        }
+
+        context_window.insert(context_window.end(), input_tokens.begin(), input_tokens.end());
+
         int generation_step = 0;
-        int current_seq_len = 1;
-
-        debugPrint("\nGenerating tokens for input: %s\n", input.c_str());
-
-        // Allocate memory for logits
-        float *d_logits = nullptr;
-        size_t logits_size = config.batch_size * config.vocab_size * sizeof(float);
-        cudaMalloc(&d_logits, logits_size);
+        int current_seq_len = context_window.size();
+        std::vector<int> generated_tokens;
 
         while (generation_step < config.max_generation_length)
         {
-            // Get the embedding for the current token
-            std::vector<int> current_tokens(1, current_token_id);
+            // Calculate required buffer size for current sequence length
+            size_t required_size = current_seq_len * config.hidden_dim * sizeof(float);
+            size_t logits_size = config.batch_size * config.vocab_size * sizeof(float);
 
+            // Reallocate buffers if needed
+            if (required_size > current_buffer_size)
+            {
+                // Free existing buffers if they exist
+                if (d_sequence_embeddings)
+                    cudaFree(d_sequence_embeddings);
+                if (d_decoder_output)
+                    cudaFree(d_decoder_output);
+                if (d_logits)
+                    cudaFree(d_logits);
+
+                // Allocate new buffers with extra padding to reduce reallocations
+                size_t padded_size = required_size * 2; // Double the size for future growth
+                cudaMalloc(&d_sequence_embeddings, padded_size);
+                cudaMalloc(&d_decoder_output, padded_size);
+                cudaMalloc(&d_logits, logits_size);
+                current_buffer_size = padded_size;
+            }
+
+            // Optimization: only compute embeddings for the new token if not the first iteration
+            if (generation_step == 0)
+            {
+                // First iteration: compute embeddings for the entire initial sequence
+                wte_layer.forward(
+                    context_window,
+                    d_sequence_embeddings,
+                    config.batch_size,
+                    current_seq_len,
+                    stream);
+
+                wpe_layer.forward(
+                    d_sequence_embeddings,
+                    current_seq_len,
+                    config.batch_size,
+                    stream,
+                    0);
+            }
+            else
+            {
+                // Subsequent iterations: only compute embeddings for the new token
+                int new_token_idx = current_seq_len - 1;
+                float *d_new_token_embedding = d_sequence_embeddings + (new_token_idx * config.hidden_dim);
+
+                // Compute token embedding for just the new token
+                std::vector<int> single_token = {context_window.back()};
+                wte_layer.forward(
+                    single_token,
+                    d_new_token_embedding,
+                    config.batch_size,
+                    1,
+                    stream);
+
+                // Add positional embedding for the new position
+                wpe_layer.forward(
+                    d_new_token_embedding,
+                    1,
+                    config.batch_size,
+                    stream,
+                    new_token_idx);
+            }
+
+            // Reset sequence embeddings buffer for new sequence length
+            cudaMemset(d_sequence_embeddings, 0, current_seq_len * config.hidden_dim * sizeof(float));
+            cudaMemset(d_decoder_output, 0, current_seq_len * config.hidden_dim * sizeof(float));
+
+            // Compute embeddings for the entire sequence
+            debugPrint("Computing embeddings for the entire sequence\n");
             wte_layer.forward(
-                current_tokens,
-                d_sequence_embeddings + (current_seq_len - 1) * config.hidden_dim,
+                context_window,
+                d_sequence_embeddings,
                 config.batch_size,
-                1,
+                current_seq_len,
                 stream);
 
+            debugPrint("Computing position embeddings for the entire sequence\n");
             wpe_layer.forward(
-                d_sequence_embeddings + (current_seq_len - 1) * config.hidden_dim,
-                1, // we only want to embed the newly appended token
+                d_sequence_embeddings,
+                current_seq_len,
                 config.batch_size,
-                stream);
+                stream,
+                0); // Start from position 0
 
-            // Run decoder with current sequence length
+            debugPrint("Running decoder with current sequence\n");
             decoder.forward(
                 d_decoder_output,
                 d_sequence_embeddings,
@@ -253,7 +380,10 @@ void runCLIServer(
                 current_seq_len,
                 stream);
 
+            // Get the last token's hidden state
             float *d_last_hidden = d_decoder_output + (current_seq_len - 1) * config.hidden_dim;
+
+            debugPrint("Performing linear transformation\n");
 
             // 1) Matrix multiply: (batch_seq_len=1) x (hidden_dim) times (hidden_dim) x (vocab_size)
             dim3 blockDim(16, 16);
@@ -276,45 +406,38 @@ void runCLIServer(
                           << cudaGetErrorString(error) << std::endl;
             }
 
-            // 2) Apply softmax to d_logits
+            debugPrint("Applying softmax to logits\n");
             applySoftmax(cudnn, d_logits, d_logits, config.batch_size * 1, config.vocab_size);
 
-            // Copy logits to host and select the max element, etc.
             std::vector<float> h_logits(config.batch_size * config.vocab_size);
             cudaMemcpy(h_logits.data(), d_logits,
                        config.batch_size * config.vocab_size * sizeof(float),
                        cudaMemcpyDeviceToHost);
 
-            // Select next token
-            auto max_iter = std::max_element(h_logits.begin(), h_logits.end());
-            int next_token_id = std::distance(h_logits.begin(), max_iter);
+            int next_token_id = selectNextToken(h_logits, config.vocab_size, config.temperature);
 
-            // Append the token
+            context_window.push_back(next_token_id);
             generated_tokens.push_back(next_token_id);
+            current_seq_len++;
+            generation_step++;
 
-            // Check for stop token
             if (next_token_id == config.stop_token_id)
             {
                 break;
             }
-
-            // Update for next iteration
-            current_token_id = next_token_id;
-            current_seq_len++;
-            generation_step++;
         }
-
-        // Free memory for logits
-        cudaFree(d_logits);
-
-        // Print the generated tokens all at once at the end of the generation
         printGeneratedTokens(generated_tokens, vocabulary);
     }
 
+    // Cleanup
+    if (d_sequence_embeddings)
+        cudaFree(d_sequence_embeddings);
+    if (d_decoder_output)
+        cudaFree(d_decoder_output);
+    if (d_logits)
+        cudaFree(d_logits);
     cudaStreamSynchronize(stream);
     cudaStreamDestroy(stream);
-    cudaFree(d_sequence_embeddings);
-    cudaFree(d_decoder_output);
 }
 
 int main(int argc, char *argv[])

@@ -7,20 +7,23 @@
 Config::Config() : num_layers(6), hidden_dim(512), num_heads(8),
                    intermediate_dim(2048), vocab_size(30522), embedding_dim(512), max_seq_len(512),
                    batch_size(1), max_generation_length(50), start_token_id(2), stop_token_id(3),
+                   temperature(0.8),
                    model_arch(ModelArchitecture::GPT2)
 {
     // Default values are set here
 }
 
-ModelArchitecture Config::parseModelArchitecture(const std::string& arch_str) {
+ModelArchitecture Config::parseModelArchitecture(const std::string &arch_str)
+{
     // Convert to lowercase for case-insensitive comparison
     std::string lower_arch = arch_str;
     std::transform(lower_arch.begin(), lower_arch.end(), lower_arch.begin(), ::tolower);
-    
-    if (lower_arch == "gpt2") {
+
+    if (lower_arch == "gpt2")
+    {
         return ModelArchitecture::GPT2;
     }
-    
+
     // If not recognized, return UNKNOWN
     return ModelArchitecture::UNKNOWN;
 }
@@ -117,13 +120,19 @@ bool Config::loadFromFile(const std::string &filename)
             {
                 stop_token_id = std::stoi(value);
             }
-            else if (key == "model_arch") {
+            else if (key == "model_arch")
+            {
                 model_arch = parseModelArchitecture(value);
-                if (model_arch == ModelArchitecture::UNKNOWN) {
-                    std::cerr << "Warning: Unknown model architecture '" << value 
+                if (model_arch == ModelArchitecture::UNKNOWN)
+                {
+                    std::cerr << "Warning: Unknown model architecture '" << value
                               << "'. Defaulting to GPT2." << std::endl;
                     model_arch = ModelArchitecture::GPT2;
                 }
+            }
+            else if (key == "temperature")
+            {
+                temperature = std::stof(value);
             }
         }
     }
@@ -131,8 +140,9 @@ bool Config::loadFromFile(const std::string &filename)
     file.close();
 
     // After loading, validate the architecture
-    if (!isArchitectureSupported()) {
-        std::cerr << "Error: Model architecture '" << static_cast<int>(model_arch) 
+    if (!isArchitectureSupported())
+    {
+        std::cerr << "Error: Model architecture '" << static_cast<int>(model_arch)
                   << "' is not supported." << std::endl;
         return false;
     }
@@ -140,8 +150,10 @@ bool Config::loadFromFile(const std::string &filename)
     return true;
 }
 
-void Config::updateFromWeights(const ModelDimensions &dims) {
-    if (!dims.valid) {
+void Config::updateFromWeights(const ModelDimensions &dims)
+{
+    if (!dims.valid)
+    {
         return;
     }
     num_layers = dims.num_layers;

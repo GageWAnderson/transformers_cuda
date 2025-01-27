@@ -7,7 +7,8 @@ __global__ void wpeForwardKernel(float *d_input_embeddings,
                                  const float *d_position_embedding,
                                  int seq_len,
                                  int batch_size,
-                                 int hidden_dim)
+                                 int hidden_dim,
+                                 int position_offset)
 {
     int idx = blockDim.x * blockIdx.x + threadIdx.x; 
     int total_tokens = seq_len * batch_size; // e.g. batch_size * seq_len
@@ -21,9 +22,8 @@ __global__ void wpeForwardKernel(float *d_input_embeddings,
         int token_index = idx / hidden_dim;  
         int emb_col     = idx % hidden_dim;
 
-        // For multi-sample batch, each sample chunk is seq_len tokens
-        // position = token_index % seq_len
-        int position = token_index % seq_len;
+        // Offset the position by position_offset.
+        int position = position_offset + (token_index % seq_len);
 
         // Add the row from GPT2 position embedding
         d_input_embeddings[idx] += d_position_embedding[position * hidden_dim + emb_col];
@@ -39,7 +39,8 @@ WPELayer::WPELayer(const GPT2Weights *weights)
 void WPELayer::forward(float *d_input_embeddings,
                        int seq_len,
                        int batch_size,
-                       cudaStream_t stream)
+                       cudaStream_t stream,
+                       int position_offset)
 {
     if (seq_len <= 0 || batch_size <= 0) return;
 
@@ -58,7 +59,8 @@ void WPELayer::forward(float *d_input_embeddings,
         d_pos_embeds,
         seq_len,
         batch_size,
-        hidden_dim
+        hidden_dim,
+        position_offset
     );
     cudaStreamSynchronize(stream);
 }

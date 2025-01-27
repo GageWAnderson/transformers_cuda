@@ -22,6 +22,7 @@ struct Config
     int max_generation_length;
     int start_token_id;
     int stop_token_id;
+    float temperature;
     std::string vocab_file;
     ModelArchitecture model_arch;
 
